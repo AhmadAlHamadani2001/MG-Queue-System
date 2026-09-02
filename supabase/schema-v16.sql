@@ -1,0 +1,37 @@
+-- =========================================================
+-- MG Kingdom Queue — v16 schema additions
+-- Run AFTER schema-v15.sql.
+--
+-- Collapses the Repair Request Agreement's 12 flat finding_N_notes /
+-- finding_N_date fields (a fixed 6-row layout) into one repeatable
+-- "findings" field — the advisor can now add as many rows as needed
+-- instead of being stuck with exactly 6 optional slots.
+-- =========================================================
+
+update form_templates
+set
+  body_template = E'هذه اتفاقيه رفع طلب اصلاح علي بند ارضاء العميل بناء علي الملاحظات التاليه :
+
+[TABLE:0]
+
+بعد الفحص والمعاينة الفنية للمركبة الموضّحة بياناتها أعلاه، تبيّن وجود ملاحظات وأعطال لا تتوافق مع شروط وأحكام الضمان المعتمد، ولا مع تعليمات وتوصيات الاستخدام الصادرة من المصنع أو الشركة الأم، والمبيّنة في كتيّب المالك وكتيّب الضمان، وعليه تُعد المركبة خارج نطاق التغطية الضمانية.
+وبناءً على ذلك، سيتم ودون أي التزام قانوني أو تعاقدي رفع مطالبة داخلية تحت بند إرضاء العميل لطلب دراسة إمكانية الإصلاح. ويقرّ العميل علمه بأن هذا الإجراء تقديري بالكامل ويخضع للسياسات الداخلية للشركة، وحيثيات الحالة الفنية للمركبة، وتكلفة الإصلاح، وأن قبول أو رفض المطالبة يعود للشركة وحدها دون أدنى مسؤولية.
+وفي حال موافقة الشركة على الإصلاح ضمن بند إرضاء العميل، يقرّ العميل بإمكانية تحمّله جزءًا من تكاليف الإصلاح أو كاملها، وفق ما تقرره الشركة، ولا يتم البدء بأي أعمال إصلاح إلا بعد إبلاغ العميل بالتكاليف وأخذ موافقته الخطية الصريحة.
+وفي حال رفض الشركة الإصلاح ضمن بند إرضاء العميل، يتم إشعار العميل بتكلفة الإصلاح النقدي، ولا يتم تنفيذ أي أعمال إصلاح إلا بعد موافقة خطية لاحقة من العميل. وفي حال رفض العميل الإصلاح النقدي، يلتزم بسداد رسوم الفحص والكشف والتشخيص والتحليل إن وجدت.
+ويقرّ العميل بأنه اعتبارًا من تاريخ دخول المركبة إلى المركز بتاريخ 01/01/2026، وخلال فترة الفحص ورفع المطالبة ودراسة الحالة، لا يحق له المطالبة بمركبة بديلة أو تعويض مادي أو أي مطالبات ناتجة عن توقف المركبة عن الاستخدام طوال فترة تواجدها داخل المركز وحتى استلامها.
+كما يقرّ العميل ويوافق على أن الشركة غير مسؤولة عن أي أضرار مباشرة أو غير مباشرة، أو خسائر مادية أو معنوية، أو تأخير في التسليم، ناتجة عن العطل القائم أو عن إجراءات الفحص أو الإصلاح أو انتظار الموافقات، أو عن أي أسباب خارجة عن إرادة الشركة، بما في ذلك توفر قطع الغيار أو موافقات الجهات المعنية.
+ويحق للشركة، في حال اكتشاف أعطال إضافية أو تغيّر نطاق أو تكلفة الإصلاح أثناء الفحص أو التفكيك، إيقاف الإجراءات وإعادة تسعير الإصلاح وأخذ موافقة جديدة من العميل، دون أن يترتب عليها أي التزام بإكمال الإصلاح.
+كما يقرّ العميل بأن أي موافقة محتملة على الإصلاح ضمن بند إرضاء العميل لا تُعد سابقة، ولا يترتب عليها أي التزام مستقبلي على الشركة، ولا يجوز الاستناد إليها في أي مطالبات لاحقة تخص نفس المركبة أو مركبات أخرى.
+وفي حال الانتهاء من الإصلاح أو رفضه، يلتزم العميل باستلام مركبته خلال المدة التي تحددها الشركة، ويحق للشركة تحميل العميل رسوم تخزين أو أي تبعات نظامية في حال التأخير عن الاستلام، مع إخلاء مسؤوليتها عن المركبة بعد إشعار العميل.
+ويُعد توقيع العميل على هذا المستند إقرارًا بالعلم والموافقة على بدء الإجراءات فقط، ولا يُعد بأي حال من الأحوال التزامًا على الشركة بإصلاح المركبة، حيث تبقى المطالبة خاضعة للقبول أو الرفض وفق تقدير الشركة وحدها.
+وعلي هذا يكون العميل غير مؤهل للحصول على سيارة بديلة أو تعويض مادي من فتره دخول المركبه بتاريخ 01/01/2026 الي التاريخ الانتهاء من الاصلاح واستلام المركبة.
+
+سجل الملاحظات:
+[REPEATER:findings]
+
+اسم العميل:  {{customer_name_sig}}          اسم مدير الصيانة: {{service_manager_name}}
+التاريخ:  {{date_customer_sign}}          التاريخ : {{date_manager_sign}}
+توقيع العميل:  {{customer_signature}}          توقيع مدير الفرع : {{branch_manager_signature}}',
+  fields = '[{"key": "approval_status", "label_en": "Approved", "label_ar": "الموافـق", "type": "text", "required": false}, {"key": "form_date", "label_en": "Date", "label_ar": "التاريـخ", "type": "date", "required": false}, {"key": "id_number", "label_en": "ID number", "label_ar": "رقم الهوية", "type": "text", "required": true}, {"key": "customer_name_table", "label_en": "Customer name", "label_ar": "اسم العميل", "type": "text", "required": true}, {"key": "email", "label_en": "Email", "label_ar": "البريد الالكتروني", "type": "text", "required": false}, {"key": "mobile_number", "label_en": "Mobile number", "label_ar": "رقم الجوال", "type": "text", "required": true}, {"key": "manufacture_year", "label_en": "Manufacture year", "label_ar": "سنة الصنع", "type": "text", "required": false}, {"key": "vehicle_model", "label_en": "Vehicle model", "label_ar": "موديل السيارة", "type": "text", "required": true}, {"key": "vin_number", "label_en": "Chassis number (VIN)", "label_ar": "رقم الهيكل", "type": "text", "required": true}, {"key": "plate_number", "label_en": "Plate number", "label_ar": "رقم اللوحة", "type": "text", "required": true}, {"key": "service_provider_name", "label_en": "Service advisor name", "label_ar": "أسم مقدم الخدمة", "type": "text", "required": false}, {"key": "card_number", "label_en": "Card number", "label_ar": "رقم الكرت", "type": "text", "required": false}, {"key": "entry_date", "label_en": "Vehicle entry date", "label_ar": "تاريخ الدخول", "type": "date", "required": true}, {"key": "odometer_reading", "label_en": "Odometer reading", "label_ar": "قراءة عداد الكيلومتر", "type": "text", "required": false}, {"key": "company_percentage", "label_en": "Company share (%)", "label_ar": "نسبة الشركة %", "type": "number", "required": false}, {"key": "customer_percentage", "label_en": "Customer share (%)", "label_ar": "نسبة العميل %", "type": "number", "required": false}, {"key": "submission_date", "label_en": "Request submission date", "label_ar": "تاريخ رفع الطلب", "type": "date", "required": false}, {"key": "customer_name_sig", "label_en": "Customer name (signature)", "label_ar": "اسم العميل (توقيع)", "type": "text", "required": false}, {"key": "service_manager_name", "label_en": "Service manager name", "label_ar": "اسم مدير الصيانة", "type": "text", "required": false}, {"key": "date_customer_sign", "label_en": "Date (customer)", "label_ar": "التاريخ (العميل)", "type": "date", "required": false}, {"key": "date_manager_sign", "label_en": "Date (manager)", "label_ar": "التاريخ (المدير)", "type": "date", "required": false}, {"key": "customer_signature", "label_en": "Customer signature", "label_ar": "توقيع العميل", "type": "text", "required": false}, {"key": "branch_manager_signature", "label_en": "Branch manager signature", "label_ar": "توقيع مدير الفرع", "type": "text", "required": false}, {"key": "findings", "label_en": "Findings log", "label_ar": "سجل الملاحظات", "type": "repeater", "required": false, "columns": [{"key": "notes", "label_en": "Notes", "label_ar": "الملاحظات", "type": "text"}, {"key": "date", "label_en": "Inspection date", "label_ar": "تاريخ الكشف", "type": "date"}]}]'::jsonb,
+  tables = '[[["الموافـق", "{{approval_status}}", "التاريـخ", "{{form_date}}"], ["رقم الهوية", "{{id_number}}", "اسم العميل", "{{customer_name_table}}"], ["البريد الالكتروني", "{{email}}", "رقم الجوال", "{{mobile_number}}"], ["بيانات المركبة"], ["سنة الصنع", "{{manufacture_year}}", "موديل السيارة", "{{vehicle_model}}"], ["رقم الهيكل", "{{vin_number}}", "رقم اللوحة", "{{plate_number}}"], ["أسم مقدم الخدمة", "{{service_provider_name}}", "رقم الكرت", "{{card_number}}"], ["تاريخ الدخول :", "{{entry_date}}"], ["آخر قراءة لعداد الكيلومتر:", "{{odometer_reading}}"], ["نسبة الشركة :", "{{company_percentage}}", "%", "نسبة العميل :", "{{customer_percentage}}", "%", "تاريخ رفع الطلب :", "{{submission_date}}"]]]'::jsonb
+where name_ar = 'اتفاقية طلب للاصلاح على بند إرضاء العملاء';
