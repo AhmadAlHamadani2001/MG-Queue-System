@@ -52,7 +52,7 @@ function HqInner() {
   }, [session, router]);
 
   const loadStats = useCallback(async () => {
-    const { data: branches } = await supabase.from("branches").select("id, code, name_en, name_ar, status").order("code");
+    const { data: branches } = await supabase.from("branches").select("*").order("code");
 
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
