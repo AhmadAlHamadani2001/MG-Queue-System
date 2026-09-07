@@ -232,6 +232,13 @@ export default function TrackingPage() {
               </div>
             </div>
           )}
+
+          <p className="text-xs text-mg-ink/40 text-center mt-auto pt-4">
+            {t("If you close this page, you can find it again anytime with your mobile number at", "إذا أغلقت هذه الصفحة، يمكنك العثور عليها مرة أخرى في أي وقت برقم جوالك عبر")}{" "}
+            <a href="/track" className="text-mg-red font-medium underline">
+              {t("Find my ticket", "البحث عن تذكرتي")}
+            </a>
+          </p>
         </div>
       </div>
     </main>

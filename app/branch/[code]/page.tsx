@@ -189,6 +189,13 @@ export default function BranchRegistrationPage() {
               >
                 {t("Continue", "متابعة")}
               </button>
+              <button
+                type="button"
+                onClick={() => router.push("/track")}
+                className="text-center text-sm text-mg-red font-medium py-1"
+              >
+                {t("Already have a ticket? Track it", "لديك تذكرة بالفعل؟ تتبعها")}
+              </button>
             </>
           )}
 

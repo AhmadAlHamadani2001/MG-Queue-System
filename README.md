@@ -177,6 +177,10 @@ generate queue branches (with customer QR links) for the other 9 too.
 
 ## Changelog (most recent first)
 
+### Round 24 — customers can find their ticket again after closing the page
+- **New `/track` page** — a customer who closed their tracking tab (or lost it) can enter the mobile number they registered with and get taken straight back to their live position in the queue. If that number has more than one active ticket (rare, but possible), they get a small picker instead of a hard error.
+- Linked from three places so it's actually discoverable: a "Track it" link on step 1 of the registration form, a persistent reminder at the bottom of the live tracking screen itself (so customers know it exists *before* they need it), and the login page's footer for anyone who lands there by mistake.
+
 ### Round 23 — real logo, renamed, Forms marked as in-development
 - **Real MG logo everywhere.** Every small "MG" octagon badge across the app (nav bars, login, sidebar, head office, parts queue, tracking screen, registration form) now uses your actual uploaded logo image (`public/mg-logo.jpg`) instead of a CSS-drawn approximation. The letterhead images on generated PDFs were already the real ones from earlier rounds — this was the last of the placeholder branding.
 - **Renamed to "MG Queue System"** — page titles, the login/HQ headers, the report footer, and the browser tab title. (Historical changelog entries below keep their original wording since they're a record of what was actually said/built at the time — only current, forward-facing branding changed.)

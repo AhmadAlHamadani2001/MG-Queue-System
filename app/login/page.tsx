@@ -110,6 +110,7 @@ export default function LoginPage() {
           </p>
           <div className="flex justify-center gap-4 mt-4 pt-4 border-t border-black/5 text-xs text-mg-ink/40">
             <a href="/branch/JED-01" className="hover:text-mg-red">{t("Customer? Join a queue", "عميل؟ انضم للطابور")}</a>
+            <a href="/track" className="hover:text-mg-red">{t("Find my ticket", "البحث عن تذكرتي")}</a>
             <a href="/hq" className="hover:text-mg-red">{t("Head Office overview", "نظرة عامة للإدارة")}</a>
           </div>
         </div>
