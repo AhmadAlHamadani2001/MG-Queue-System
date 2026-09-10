@@ -45,6 +45,7 @@ several files reference tables the previous one creates:
 18. **`supabase/schema-v14.sql`** — adds table support (`tables` column) and a `required` flag per field, and seeds three more digitized forms: Complaint Waiver, Repair Request Agreement, and Customer Satisfaction Discount Form.
 19. **`supabase/schema-v15.sql`** — replaces the Complaint Waiver Form's layout with a clean, from-scratch design (plain field list + terms + signature) instead of mirroring the original Word document's grid cell-for-cell.
 20. **`supabase/schema-v16.sql`** — collapses the Repair Request Agreement's 12 flat finding fields (a fixed 6-row layout) into one repeatable "findings" field — add as many rows as needed instead of exactly 6 optional slots.
+21. **`supabase/schema-v17.sql`** — adds `branch_queue_settings`, so a manager or admin can adjust "Call Next Customer"'s priority order and fairness rules per branch instead of it being one fixed rule for everyone.
 11. **`supabase/schema-v7.sql`** — adds `approval_requested_by` (so "Return" can reassign back to whoever asked for approval, and so they're allowed to reassign the line even if they're not the current assignee) and `requests.branch` (reserved for a same-branch duplicate-WIP warning on the New Request form — not wired up in the UI yet).
 
 Then go to **Project Settings → API** and copy:
@@ -176,6 +177,14 @@ generate queue branches (with customer QR links) for the other 9 too.
 ---
 
 ## Changelog (most recent first)
+
+### Round 26 — Appointment and General Repair are now visible, configurable tiers
+- **Fixed a real gap in Queue Settings**: it only ever exposed Inquiry and Receive Vehicle as reorderable — Appointment and General Repair existed in the ranking logic but were silently hardcoded into an unconfigurable fallback bucket alongside Quick Service, with no way to see or adjust them. All five real categories (Inquiry, Appointment, Receive Vehicle, General Repair, Quick Service) are now individually listed and reorderable on `/advisor/[code]/queue-settings`.
+- **Appointment is now its own category** in the ranking — a customer who booked an appointment is grouped there regardless of what service type they selected (so an appointment customer needing Quick Service still gets Appointment-tier priority, not Quick-Service-tier). Only walk-ins fall through to being sorted by their specific service type.
+- **Backward compatible** — a branch that already customized settings under the old 2-tier system automatically gets Appointment/General Repair/Quick Service appended in the standard default order the moment they open the settings page again; nothing breaks for branches that haven't touched this page at all.
+
+### Round 25 — configurable queue priority per branch
+- **Managers and admins can now adjust the "Call Next Customer" algorithm per branch** at `/advisor/[code]/queue-settings` (linked from the sidebar, manager/admin only): reorder whether Inquiry or Receive Vehicle gets checked first (drag via up/down arrows), toggle Quick Service's fair distribution on or off entirely, and set how many minutes a Quick Service customer waits before fairness is overridden and they're served regardless. Each branch's settings are independent — adjusting one branch never affects another. Falls back to the original defaults (Inquiry first, then Receive Vehicle, Quick Service fairly distributed, 15-minute override) if a branch hasn't customized anything yet.
 
 ### Round 24 — customers can find their ticket again after closing the page
 - **New `/track` page** — a customer who closed their tracking tab (or lost it) can enter the mobile number they registered with and get taken straight back to their live position in the queue. If that number has more than one active ticket (rare, but possible), they get a small picker instead of a hard error.

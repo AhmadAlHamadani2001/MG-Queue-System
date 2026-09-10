@@ -25,6 +25,17 @@ export type Branch = {
   employee_branch: string | null;
 };
 
+export type QueuePriorityTier = "inquiry" | "appointment" | "vehicle_delivery" | "general_repair" | "quick_service";
+
+export type BranchQueueSettings = {
+  branch_id: string;
+  priority_order: QueuePriorityTier[];
+  fairness_enabled: boolean;
+  fairness_override_minutes: number;
+  updated_by: string | null;
+  updated_at: string;
+};
+
 export type QueueTicket = {
   id: string;
   branch_id: string;

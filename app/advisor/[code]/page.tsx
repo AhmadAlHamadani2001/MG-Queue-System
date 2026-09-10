@@ -8,7 +8,7 @@ import { useLang } from "@/lib/useLang";
 import { useSession } from "@/lib/useSession";
 import { useToast, ToastBanner } from "@/lib/useToast";
 import { Spinner } from "@/lib/Spinner";
-import { supabase, Branch, QueueTicket, Employee, AppUser } from "@/lib/supabaseClient";
+import { supabase, Branch, QueueTicket, Employee, AppUser, BranchQueueSettings, QueuePriorityTier } from "@/lib/supabaseClient";
 
 const WIP_LABELS: Record<string, [string, string]> = {
   general_repair: ["General Repair", "إصلاح عام"],
@@ -16,21 +16,49 @@ const WIP_LABELS: Record<string, [string, string]> = {
   vehicle_delivery: ["Receive Vehicle", "استلام المركبة"],
 };
 
-// Ranking used by "Call Next Customer": a specific pre-assignment
-// from a manager always wins; then Inquiries; then Receive Vehicle;
-// then Quick Service/General Repair, with Quick Service distributed
-// fairly across advisors (it carries an incentive, so no single
-// advisor should be able to always grab it) unless the customer has
-// already waited past the fairness window.
-const FAIRNESS_OVERRIDE_MINUTES = 15;
+const ALL_QUEUE_TIERS: QueuePriorityTier[] = ["inquiry", "appointment", "vehicle_delivery", "general_repair", "quick_service"];
 
+const DEFAULT_QUEUE_SETTINGS: Pick<BranchQueueSettings, "priority_order" | "fairness_enabled" | "fairness_override_minutes"> = {
+  priority_order: ALL_QUEUE_TIERS,
+  fairness_enabled: true,
+  fairness_override_minutes: 15,
+};
+
+// A branch may have saved settings before Appointment/General
+// Repair/Quick Service existed as explicit, orderable tiers — this
+// appends whatever's missing (in the standard default order) so no
+// category ever silently becomes unreachable.
+function fullPriorityOrder(order: QueuePriorityTier[]): QueuePriorityTier[] {
+  const missing = ALL_QUEUE_TIERS.filter((tier) => !order.includes(tier));
+  return [...order, ...missing];
+}
+
+function categoryOf(tk: QueueTicket): QueuePriorityTier | null {
+  if (tk.service_mode === "inquiry") return "inquiry";
+  if (tk.service_mode === "appointment") return "appointment";
+  if (tk.wip_service_type === "vehicle_delivery") return "vehicle_delivery";
+  if (tk.wip_service_type === "general_repair") return "general_repair";
+  if (tk.wip_service_type === "quick_service") return "quick_service";
+  return null;
+}
+
+// Ranking used by "Call Next Customer": a specific pre-assignment from
+// a manager always wins; then the branch's configured priority order
+// across all five real categories (Inquiry, Appointment, Receive
+// Vehicle, General Repair, Quick Service) — reorderable per branch.
+// Quick Service can optionally be distributed fairly across advisors
+// (it carries an incentive, so no single advisor should be able to
+// always grab it) unless the customer has already waited past the
+// branch's fairness window. Every one of these levers is adjustable
+// per branch — see /advisor/[code]/queue-settings.
 function pickNextTicket(
   waiting: QueueTicket[],
   advisorName: string,
-  quickServiceCounts: Record<string, number>
+  quickServiceCounts: Record<string, number>,
+  settings: Pick<BranchQueueSettings, "priority_order" | "fairness_enabled" | "fairness_override_minutes">
 ): QueueTicket | null {
   // Urgent pre-assignment jumps straight to the front, ahead of
-  // everything else.
+  // everything else — not configurable, this is a direct manager action.
   const urgent = waiting.find((tk) => tk.preassigned_advisor === advisorName && tk.preassign_urgent);
   if (urgent) return urgent;
 
@@ -40,32 +68,27 @@ function pickNextTicket(
   // in the pool and is picked up in its normal turn below.
   const eligible = waiting.filter((tk) => !tk.preassigned_advisor || tk.preassigned_advisor === advisorName);
 
-  const inquiry = eligible.find((tk) => tk.service_mode === "inquiry");
-  if (inquiry) return inquiry;
+  for (const tier of fullPriorityOrder(settings.priority_order)) {
+    const matches = eligible.filter((tk) => categoryOf(tk) === tier);
+    if (matches.length === 0) continue;
+    const oldest = matches[0]; // eligible preserves ascending queue_entry_at order
 
-  const receiveVehicle = eligible.find((tk) => tk.wip_service_type === "vehicle_delivery");
-  if (receiveVehicle) return receiveVehicle;
+    if (tier === "quick_service" && settings.fairness_enabled) {
+      const waitedMin = (Date.now() - new Date(oldest.queue_entry_at).getTime()) / 60000;
+      if (waitedMin > settings.fairness_override_minutes) return oldest;
 
-  const tier3 = eligible.filter(
-    (tk) => tk.wip_service_type === "quick_service" || tk.wip_service_type === "general_repair"
-  );
-  if (tier3.length === 0) return null;
+      const myCount = quickServiceCounts[advisorName] ?? 0;
+      const counts = Object.values(quickServiceCounts);
+      const minCount = counts.length ? Math.min(...counts) : 0;
+      if (myCount <= minCount) return oldest;
 
-  const oldest = tier3[0];
-  const waitedMin = (Date.now() - new Date(oldest.queue_entry_at).getTime()) / 60000;
+      continue; // not this advisor's fair turn — move on to the next tier
+    }
 
-  if (oldest.wip_service_type !== "quick_service" || waitedMin > FAIRNESS_OVERRIDE_MINUTES) {
     return oldest;
   }
 
-  const myCount = quickServiceCounts[advisorName] ?? 0;
-  const counts = Object.values(quickServiceCounts);
-  const minCount = counts.length ? Math.min(...counts) : 0;
-
-  if (myCount <= minCount) return oldest;
-
-  const generalRepair = tier3.find((tk) => tk.wip_service_type === "general_repair");
-  return generalRepair ?? null;
+  return null;
 }
 
 export default function AdvisorPage() {
@@ -87,6 +110,10 @@ function AdvisorDashboard() {
   const [tickets, setTickets] = useState<QueueTicket[]>([]);
   const [noShowTickets, setNoShowTickets] = useState<QueueTicket[]>([]);
   const [branchAdvisors, setBranchAdvisors] = useState<AppUser[]>([]);
+  const [queueSettings, setQueueSettings] = useState<Pick<
+    BranchQueueSettings,
+    "priority_order" | "fairness_enabled" | "fairness_override_minutes"
+  >>(DEFAULT_QUEUE_SETTINGS);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [now, setNow] = useState(Date.now());
   const [loading, setLoading] = useState(true);
@@ -183,6 +210,18 @@ function AdvisorDashboard() {
         return;
       }
       setBranch(branchData as Branch);
+      const { data: settingsData } = await supabase
+        .from("branch_queue_settings")
+        .select("*")
+        .eq("branch_id", branchData.id)
+        .maybeSingle();
+      if (settingsData) {
+        setQueueSettings({
+          priority_order: settingsData.priority_order,
+          fairness_enabled: settingsData.fairness_enabled,
+          fairness_override_minutes: settingsData.fairness_override_minutes,
+        });
+      }
       await loadTickets(branchData.id);
       setLoading(false);
     }
@@ -197,6 +236,20 @@ function AdvisorDashboard() {
         "postgres_changes",
         { event: "*", schema: "public", table: "queue_tickets", filter: `branch_id=eq.${branch.id}` },
         () => loadTickets(branch.id)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "branch_queue_settings", filter: `branch_id=eq.${branch.id}` },
+        (payload) => {
+          const row = payload.new as BranchQueueSettings | undefined;
+          if (row) {
+            setQueueSettings({
+              priority_order: row.priority_order,
+              fairness_enabled: row.fairness_enabled,
+              fairness_override_minutes: row.fairness_override_minutes,
+            });
+          }
+        }
       )
       .subscribe();
     return () => {
@@ -253,7 +306,7 @@ function AdvisorDashboard() {
     if (!branch || callingNext) return;
     setCallingNext(true);
     const counts = await getQuickServiceCountsToday(branch.id);
-    const candidate = pickNextTicket(waiting, advisorName, counts);
+    const candidate = pickNextTicket(waiting, advisorName, counts, queueSettings);
     if (!candidate) {
       setCallingNext(false);
       showToast(t("No customer available for you right now.", "لا يوجد عميل متاح لك الآن."));
@@ -463,6 +516,11 @@ function AdvisorDashboard() {
           {canSeeQueue && (
             <Link href={`/parts/${branch.code}`} className="text-black/60 mx-2 my-1 p-3 flex items-center gap-3 text-sm rounded-xl hover:bg-black/5 hover:text-mg-red transition">
               🧰 {t("Spare Parts Queue", "طابور قطع الغيار")}
+            </Link>
+          )}
+          {canSeeQueue && (
+            <Link href={`/advisor/${branch.code}/queue-settings`} className="text-black/60 mx-2 my-1 p-3 flex items-center gap-3 text-sm rounded-xl hover:bg-black/5 hover:text-mg-red transition">
+              ⚙️ {t("Queue Settings", "إعدادات الطابور")}
             </Link>
           )}
           <Link href="/requests" className="text-black/60 mx-2 my-1 p-3 flex items-center justify-between text-sm rounded-xl hover:bg-black/5 hover:text-mg-red transition">
