@@ -46,6 +46,7 @@ several files reference tables the previous one creates:
 19. **`supabase/schema-v15.sql`** — replaces the Complaint Waiver Form's layout with a clean, from-scratch design (plain field list + terms + signature) instead of mirroring the original Word document's grid cell-for-cell.
 20. **`supabase/schema-v16.sql`** — collapses the Repair Request Agreement's 12 flat finding fields (a fixed 6-row layout) into one repeatable "findings" field — add as many rows as needed instead of exactly 6 optional slots.
 21. **`supabase/schema-v17.sql`** — adds `branch_queue_settings`, so a manager or admin can adjust "Call Next Customer"'s priority order and fairness rules per branch instead of it being one fixed rule for everyone.
+22. **`supabase/schema-v18.sql`** — adds a `held` ticket status with a 24-hour validity window (`held_at`, `was_held`), for customers who were called but hadn't shown up yet.
 11. **`supabase/schema-v7.sql`** — adds `approval_requested_by` (so "Return" can reassign back to whoever asked for approval, and so they're allowed to reassign the line even if they're not the current assignee) and `requests.branch` (reserved for a same-branch duplicate-WIP warning on the New Request form — not wired up in the UI yet).
 
 Then go to **Project Settings → API** and copy:
@@ -177,6 +178,18 @@ generate queue branches (with customer QR links) for the other 9 too.
 ---
 
 ## Changelog (most recent first)
+
+### Round 28 — spoken call announcement, duplicate-ticket guard, label/icon polish
+- **The call alert now speaks**, not just chimes — "Please proceed now, `<advisor name>` is ready for you" in English, then Arabic, using the browser's built-in text-to-speech (no audio files, no external service). Falls back to a name-less phrase if the advisor's name isn't set for some reason.
+- **Registering while already on hold (or already in the queue) now shows a choice instead of silently creating a duplicate** — before a new ticket is created, the registration form checks for an existing held or active ticket on that mobile number at that branch. If found, the customer sees "Rejoin the queue" (or "View my ticket") alongside "Create new ticket anyway," so accidental duplicates require a deliberate second step instead of happening automatically.
+- **Walk-in icon changed** from 🚶 to 🎫 — reads as "take a queue ticket," a more formal fit for the other three service-type icons.
+- **"Receive Vehicle" renamed to "Receive Vehicle after Repair/Quick Service"** everywhere it appears (registration, advisor dashboard, Queue Settings).
+
+### Round 27 — audible call alert, Hold list with 24h reactivation
+- **Audible alert when a customer's turn comes.** The live tracking page (`/t/[id]`) now plays a short synthesized chime plus a vibration the moment a ticket flips to "called" — built with the Web Audio API, no sound file to host. Mobile browsers block audio until a real tap has happened on the page, so the first touch/click anywhere on the tracking screen silently "unlocks" it in the background, ready for whenever the alert actually fires.
+- **New "Hold" button** next to No Show on the active session panel — for a called customer who hasn't shown up yet but you don't want to write off as a no-show. Held customers appear in a new "On hold" list (with a rough "expires in ~Nh" countdown) and stay reactivatable for 24 hours.
+- **Customers can reactivate themselves** — `/track` now also checks for a held ticket on that mobile number and, if found (and still within the 24-hour window), shows a "Welcome back" card with a "Rejoin the queue" button. Staff can also reactivate manually from the Hold list if the customer just walks up instead.
+- **Reactivated customers get priority** — once rejoined, a held ticket jumps ahead of the branch's normal category order (Inquiry/Appointment/etc.) the next time any advisor clicks "Call Next Customer," since they already made it partway through once. This sits below only an explicit urgent manager pre-assignment.
 
 ### Round 26 — Appointment and General Repair are now visible, configurable tiers
 - **Fixed a real gap in Queue Settings**: it only ever exposed Inquiry and Receive Vehicle as reorderable — Appointment and General Repair existed in the ranking logic but were silently hardcoded into an unconfigurable fallback bucket alongside Quick Service, with no way to see or adjust them. All five real categories (Inquiry, Appointment, Receive Vehicle, General Repair, Quick Service) are now individually listed and reorderable on `/advisor/[code]/queue-settings`.

@@ -13,6 +13,8 @@ type Match = {
   branch: { name_en: string; name_ar: string; code: string } | null;
 };
 
+type HeldMatch = Match & { held_at: string | null };
+
 export default function TrackPage() {
   const router = useRouter();
   const [lang, setLang] = useState<"en" | "ar">("en");
@@ -20,6 +22,8 @@ export default function TrackPage() {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [matches, setMatches] = useState<Match[]>([]);
+  const [heldMatches, setHeldMatches] = useState<HeldMatch[]>([]);
+  const [reactivatingId, setReactivatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const dir = lang === "ar" ? "rtl" : "ltr";
@@ -39,21 +43,46 @@ export default function TrackPage() {
       .in("status", ["waiting", "called", "in_service"])
       .order("queue_entry_at", { ascending: false });
 
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: heldData, error: heldError } = await supabase
+      .from("queue_tickets")
+      .select("id, ticket_number, status, queue_entry_at, held_at, branch:branches(name_en, name_ar, code)")
+      .eq("mobile", fullMobile)
+      .eq("status", "held")
+      .gte("held_at", oneDayAgo)
+      .order("held_at", { ascending: false });
+
     setSearching(false);
     setSearched(true);
 
-    if (queryError) {
+    if (queryError || heldError) {
       setError(t("Something went wrong. Please try again.", "حدث خطأ ما. حاول مرة أخرى."));
       return;
     }
 
     const rows = (data ?? []) as unknown as Match[];
+    const heldRows = (heldData ?? []) as unknown as HeldMatch[];
     setMatches(rows);
+    setHeldMatches(heldRows);
 
-    // Exactly one active ticket — skip straight to it, no need to pick.
-    if (rows.length === 1) {
+    // Exactly one active ticket and nothing held — skip straight to it.
+    if (rows.length === 1 && heldRows.length === 0) {
       router.push(`/t/${rows[0].id}`);
     }
+  }
+
+  async function handleReactivate(ticketId: string) {
+    setReactivatingId(ticketId);
+    const { error: reactivateError } = await supabase
+      .from("queue_tickets")
+      .update({ status: "waiting", was_held: true, advisor_name: null, served_at: null })
+      .eq("id", ticketId);
+    setReactivatingId(null);
+    if (reactivateError) {
+      setError(t("Something went wrong. Please try again.", "حدث خطأ ما. حاول مرة أخرى."));
+      return;
+    }
+    router.push(`/t/${ticketId}`);
   }
 
   return (
@@ -117,7 +146,7 @@ export default function TrackPage() {
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          {searched && !error && matches.length === 0 && (
+          {searched && !error && matches.length === 0 && heldMatches.length === 0 && (
             <div className="glass-card rounded-2xl p-6 text-center flex flex-col items-center gap-2">
               <span className="text-3xl">🔍</span>
               <p className="font-semibold text-mg-ink">{t("No active ticket found", "لا توجد تذكرة نشطة")}</p>
@@ -129,6 +158,27 @@ export default function TrackPage() {
               </p>
             </div>
           )}
+
+          {heldMatches.map((m) => (
+            <div key={m.id} className="glass-card rounded-2xl p-5 flex flex-col items-center gap-2 text-center border-2 border-mg-red/20">
+              <span className="text-3xl">👋</span>
+              <p className="font-semibold text-mg-ink">{t("Welcome back!", "مرحباً بعودتك!")}</p>
+              <p className="text-sm text-mg-ink/50">
+                {t(
+                  `You were called earlier for ticket ${m.ticket_number}${m.branch ? ` at ${m.branch.name_en}` : ""}. Rejoin the queue now and you'll be seen ahead of new arrivals.`,
+                  `تم استدعاؤك سابقاً للتذكرة ${m.ticket_number}${m.branch ? ` في ${m.branch.name_ar}` : ""}. أعد الانضمام للطابور الآن وسيتم استقبالك قبل الوافدين الجدد.`
+                )}
+              </p>
+              <button
+                onClick={() => handleReactivate(m.id)}
+                disabled={reactivatingId === m.id}
+                className="w-full mt-2 py-3.5 rounded-lg bg-mg-red text-white font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {reactivatingId === m.id && <Spinner size={16} />}
+                {t("Rejoin the queue", "إعادة الانضمام للطابور")}
+              </button>
+            </div>
+          ))}
 
           {matches.length > 1 && (
             <div className="glass-card rounded-2xl divide-y divide-black/5">

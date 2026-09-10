@@ -14,7 +14,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export type ServiceMode = "appointment" | "walk_in" | "inquiry" | "spare_parts";
 export type WipServiceType = "general_repair" | "quick_service" | "vehicle_delivery";
-export type TicketStatus = "waiting" | "called" | "in_service" | "completed" | "no_show" | "cancelled";
+export type TicketStatus = "waiting" | "called" | "in_service" | "completed" | "no_show" | "cancelled" | "held";
 
 export type Branch = {
   id: string;
@@ -48,6 +48,8 @@ export type QueueTicket = {
   status: TicketStatus;
   preassigned_advisor: string | null;
   preassign_urgent: boolean;
+  held_at: string | null;
+  was_held: boolean;
   queue_entry_at: string;
   served_at: string | null;
   closed_at: string | null;

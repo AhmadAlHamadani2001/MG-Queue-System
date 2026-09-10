@@ -13,7 +13,7 @@ import { supabase, Branch, QueueTicket, Employee, AppUser, BranchQueueSettings, 
 const WIP_LABELS: Record<string, [string, string]> = {
   general_repair: ["General Repair", "إصلاح عام"],
   quick_service: ["Quick Service", "خدمة سريعة"],
-  vehicle_delivery: ["Receive Vehicle", "استلام المركبة"],
+  vehicle_delivery: ["Receive Vehicle after Repair/Quick Service", "استلام المركبة بعد الإصلاح/الخدمة السريعة"],
 };
 
 const ALL_QUEUE_TIERS: QueuePriorityTier[] = ["inquiry", "appointment", "vehicle_delivery", "general_repair", "quick_service"];
@@ -68,6 +68,12 @@ function pickNextTicket(
   // in the pool and is picked up in its normal turn below.
   const eligible = waiting.filter((tk) => !tk.preassigned_advisor || tk.preassigned_advisor === advisorName);
 
+  // A reactivated hold customer already made it partway through once
+  // — they jump ahead of the normal category order (but still behind
+  // an explicit urgent preassignment above), oldest reactivation first.
+  const reactivated = eligible.filter((tk) => tk.was_held);
+  if (reactivated.length > 0) return reactivated[0];
+
   for (const tier of fullPriorityOrder(settings.priority_order)) {
     const matches = eligible.filter((tk) => categoryOf(tk) === tier);
     if (matches.length === 0) continue;
@@ -109,6 +115,7 @@ function AdvisorDashboard() {
   const [branch, setBranch] = useState<Branch | null>(null);
   const [tickets, setTickets] = useState<QueueTicket[]>([]);
   const [noShowTickets, setNoShowTickets] = useState<QueueTicket[]>([]);
+  const [heldTickets, setHeldTickets] = useState<QueueTicket[]>([]);
   const [branchAdvisors, setBranchAdvisors] = useState<AppUser[]>([]);
   const [queueSettings, setQueueSettings] = useState<Pick<
     BranchQueueSettings,
@@ -196,6 +203,20 @@ function AdvisorDashboard() {
       .order("queue_entry_at", { ascending: false })
       .limit(10);
     setNoShowTickets((noShows as QueueTicket[]) ?? []);
+
+    // Held tickets stay reactivatable for 24 hours from when they
+    // were held — older ones just stop appearing here (and in the
+    // customer's own /track lookup), no cleanup job needed.
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: held } = await supabase
+      .from("queue_tickets")
+      .select("*")
+      .eq("branch_id", branchId)
+      .eq("status", "held")
+      .neq("service_mode", "spare_parts")
+      .gte("held_at", oneDayAgo)
+      .order("held_at", { ascending: false });
+    setHeldTickets((held as QueueTicket[]) ?? []);
   }, []);
 
   useEffect(() => {
@@ -280,6 +301,7 @@ function AdvisorDashboard() {
         advisor_name: advisorName,
         preassigned_advisor: null,
         preassign_urgent: false,
+        was_held: false,
       })
       .eq("id", ticketId);
     showToast(t("Customer called.", "تم استدعاء العميل."));
@@ -356,6 +378,19 @@ function AdvisorDashboard() {
   async function noShow(ticketId: string) {
     await supabase.from("queue_tickets").update({ status: "no_show" }).eq("id", ticketId);
     showToast(t("Marked as no-show.", "تم تسجيله كعدم حضور."));
+  }
+
+  async function holdCustomer(ticketId: string) {
+    await supabase.from("queue_tickets").update({ status: "held", held_at: new Date().toISOString() }).eq("id", ticketId);
+    showToast(t("Customer held — valid for 24 hours.", "تم تعليق العميل — صالح لمدة 24 ساعة."));
+  }
+
+  async function reactivateFromHold(ticketId: string) {
+    await supabase
+      .from("queue_tickets")
+      .update({ status: "waiting", was_held: true, advisor_name: null, served_at: null })
+      .eq("id", ticketId);
+    showToast(t("Reactivated — back in the queue with priority.", "تمت إعادة التنشيط — رجع للطابور بأولوية."));
   }
 
   async function returnToQueue(ticketId: string) {
@@ -674,6 +709,33 @@ function AdvisorDashboard() {
                       </div>
                     </div>
                   )}
+
+                  {heldTickets.length > 0 && (
+                    <div className="border-t border-black/10 pt-3">
+                      <p className="text-xs uppercase tracking-wide text-black/40 mb-2">
+                        {t("On hold — valid 24h, or customer can reactivate via /track", "معلّق — صالح 24 ساعة، أو يمكن للعميل إعادة التنشيط عبر /track")}
+                      </p>
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                        {heldTickets.map((tk) => (
+                          <div key={tk.id} className="flex items-center justify-between gap-2 bg-black/[0.03] rounded-lg px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">
+                                {tk.ticket_number} · {tk.customer_name}
+                              </p>
+                              <p className="text-[11px] text-black/40">{holdExpiryLabel(tk.held_at, lang)}</p>
+                            </div>
+                            <button
+                              onClick={() => withBusy(tk.id, () => reactivateFromHold(tk.id))}
+                              disabled={busyTicketIds.has(tk.id)}
+                              className="shrink-0 text-xs font-semibold text-mg-red hover:underline disabled:opacity-50 flex items-center gap-1"
+                            >
+                              {busyTicketIds.has(tk.id) && <Spinner size={10} />} {t("Reactivate", "إعادة تنشيط")}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-center gap-4 glass-card rounded-2xl p-8">
@@ -792,6 +854,13 @@ function AdvisorDashboard() {
                         {busyTicketIds.has(activeSession.id) ? <Spinner size={14} /> : "🚫"} {t("No Show", "لم يحضر")}
                       </button>
                       <button
+                        onClick={() => withBusy(activeSession.id, () => holdCustomer(activeSession.id))}
+                        disabled={busyTicketIds.has(activeSession.id)}
+                        className="py-4 px-6 rounded-xl border border-black/10 bg-white/50 flex items-center gap-2 hover:border-mg-red hover:bg-mg-red/5 disabled:opacity-50"
+                      >
+                        {busyTicketIds.has(activeSession.id) ? <Spinner size={14} /> : "⏸️"} {t("Hold", "تعليق")}
+                      </button>
+                      <button
                         onClick={() => transferToManager(activeSession.id)}
                         disabled={transferring}
                         className="py-4 px-6 rounded-xl border border-black/10 bg-white/50 flex items-center gap-2 hover:border-mg-red hover:bg-mg-red/5 disabled:opacity-40"
@@ -845,4 +914,11 @@ function AdvisorDashboard() {
 function waitLabel(entryAt: string, lang: "en" | "ar") {
   const mins = Math.max(0, Math.round((Date.now() - new Date(entryAt).getTime()) / 60000));
   return lang === "en" ? `${mins} min ago` : `منذ ${mins} د`;
+}
+
+function holdExpiryLabel(heldAt: string | null, lang: "en" | "ar") {
+  if (!heldAt) return "";
+  const hoursLeft = 24 - (Date.now() - new Date(heldAt).getTime()) / 3600000;
+  const rounded = Math.max(0, Math.round(hoursLeft));
+  return lang === "en" ? `Expires in ~${rounded}h` : `تنتهي خلال ~${rounded} س`;
 }

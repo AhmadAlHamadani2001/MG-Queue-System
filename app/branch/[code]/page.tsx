@@ -8,7 +8,7 @@ import { Spinner } from "@/lib/Spinner";
 const WIP_OPTIONS: { value: WipServiceType; en: string; ar: string; icon: string }[] = [
   { value: "general_repair", en: "General Repair", ar: "إصلاح عام", icon: "🔧" },
   { value: "quick_service", en: "Quick Service", ar: "خدمة سريعة", icon: "⚡" },
-  { value: "vehicle_delivery", en: "Receive Vehicle", ar: "استلام المركبة", icon: "🚚" },
+  { value: "vehicle_delivery", en: "Receive Vehicle after Repair/Quick Service", ar: "استلام المركبة بعد الإصلاح/الخدمة السريعة", icon: "🚚" },
 ];
 
 const MODE_LABELS: Record<ServiceMode, [string, string]> = {
@@ -34,6 +34,8 @@ export default function BranchRegistrationPage() {
   const [wipNumber, setWipNumber] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicateCheck, setDuplicateCheck] = useState<{ type: "active" | "held"; id: string; ticketNumber: string } | null>(null);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
   const dir = lang === "ar" ? "rtl" : "ltr";
   const t = (en: string, ar: string) => (lang === "en" ? en : ar);
@@ -56,6 +58,57 @@ export default function BranchRegistrationPage() {
     }
     loadBranch();
   }, [params.code]);
+
+  async function checkExistingTicketThenContinue() {
+    if (!mobile || !name || !branch) return;
+    setCheckingDuplicate(true);
+    const fullMobile = `+966${mobile}`;
+
+    const { data: activeData } = await supabase
+      .from("queue_tickets")
+      .select("id, ticket_number")
+      .eq("branch_id", branch.id)
+      .eq("mobile", fullMobile)
+      .in("status", ["waiting", "called", "in_service"])
+      .order("queue_entry_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeData) {
+      setDuplicateCheck({ type: "active", id: activeData.id, ticketNumber: activeData.ticket_number });
+      setCheckingDuplicate(false);
+      return;
+    }
+
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: heldData } = await supabase
+      .from("queue_tickets")
+      .select("id, ticket_number")
+      .eq("branch_id", branch.id)
+      .eq("mobile", fullMobile)
+      .eq("status", "held")
+      .gte("held_at", oneDayAgo)
+      .order("held_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (heldData) {
+      setDuplicateCheck({ type: "held", id: heldData.id, ticketNumber: heldData.ticket_number });
+      setCheckingDuplicate(false);
+      return;
+    }
+
+    setCheckingDuplicate(false);
+    setStep(2);
+  }
+
+  async function rejoinFromHold(ticketId: string) {
+    await supabase
+      .from("queue_tickets")
+      .update({ status: "waiting", was_held: true, advisor_name: null, served_at: null })
+      .eq("id", ticketId);
+    router.push(`/t/${ticketId}`);
+  }
 
   async function handleSubmit() {
     if (!branch || !mobile || !name || !mode) return;
@@ -183,10 +236,11 @@ export default function BranchRegistrationPage() {
               </div>
               <button
                 type="button"
-                disabled={!mobile || !name}
-                onClick={() => setStep(2)}
-                className="mt-auto w-full py-4 rounded-lg bg-mg-ink text-white font-bold disabled:opacity-40"
+                disabled={!mobile || !name || checkingDuplicate}
+                onClick={checkExistingTicketThenContinue}
+                className="mt-auto w-full py-4 rounded-lg bg-mg-ink text-white font-bold disabled:opacity-40 flex items-center justify-center gap-2"
               >
+                {checkingDuplicate && <Spinner size={16} />}
                 {t("Continue", "متابعة")}
               </button>
               <button
@@ -222,7 +276,7 @@ export default function BranchRegistrationPage() {
                     mode === "walk_in" ? "border-mg-red bg-mg-red/5" : "border-black/10"
                   }`}
                 >
-                  <span className="text-xl">🚶</span>
+                  <span className="text-xl">🎫</span>
                   <span className="text-sm font-semibold">{t("Walk-in", "بدون موعد")}</span>
                 </button>
                 <button
@@ -360,6 +414,52 @@ export default function BranchRegistrationPage() {
           )}
         </form>
       </div>
+
+      {duplicateCheck && (
+        <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-6">
+          <div className="glass-card rounded-2xl p-6 w-full max-w-sm bg-white flex flex-col items-center text-center gap-2">
+            <span className="text-3xl">{duplicateCheck.type === "held" ? "👋" : "⚠️"}</span>
+            {duplicateCheck.type === "held" ? (
+              <>
+                <p className="font-semibold text-mg-ink">{t("You have a held ticket", "لديك تذكرة معلّقة")}</p>
+                <p className="text-sm text-mg-ink/50">
+                  {t(
+                    `You were called earlier for ticket ${duplicateCheck.ticketNumber}. Rejoin the queue and you'll be seen ahead of new arrivals — or create a brand new ticket if this is a different visit.`,
+                    `تم استدعاؤك سابقاً للتذكرة ${duplicateCheck.ticketNumber}. أعد الانضمام للطابور وسيتم استقبالك قبل الوافدين الجدد — أو أنشئ تذكرة جديدة إذا كانت هذه زيارة مختلفة.`
+                  )}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold text-mg-ink">{t("You already have an active ticket", "لديك تذكرة نشطة بالفعل")}</p>
+                <p className="text-sm text-mg-ink/50">
+                  {t(
+                    `Ticket ${duplicateCheck.ticketNumber} is already in this queue for this number. View it, or create a new ticket if this is a different visit.`,
+                    `التذكرة ${duplicateCheck.ticketNumber} موجودة بالفعل في هذا الطابور لهذا الرقم. اعرضها، أو أنشئ تذكرة جديدة إذا كانت هذه زيارة مختلفة.`
+                  )}
+                </p>
+              </>
+            )}
+            <div className="w-full flex flex-col gap-2 mt-3">
+              <button
+                onClick={() => (duplicateCheck.type === "held" ? rejoinFromHold(duplicateCheck.id) : router.push(`/t/${duplicateCheck.id}`))}
+                className="w-full py-3.5 rounded-lg bg-mg-red text-white font-bold"
+              >
+                {duplicateCheck.type === "held" ? t("Rejoin the queue", "إعادة الانضمام للطابور") : t("View my ticket", "عرض تذكرتي")}
+              </button>
+              <button
+                onClick={() => {
+                  setDuplicateCheck(null);
+                  setStep(2);
+                }}
+                className="w-full py-3.5 rounded-lg border border-black/15 font-semibold text-mg-ink"
+              >
+                {t("Create new ticket anyway", "إنشاء تذكرة جديدة على أي حال")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

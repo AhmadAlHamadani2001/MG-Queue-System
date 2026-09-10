@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { supabase, Branch, QueueTicket } from "@/lib/supabaseClient";
 import { Spinner } from "@/lib/Spinner";
+import { unlockAudio, unlockSpeech, playCallAnnouncement } from "@/lib/notifySound";
 
 export default function TrackingPage() {
   const params = useParams<{ id: string }>();
@@ -12,9 +13,27 @@ export default function TrackingPage() {
   const [branch, setBranch] = useState<Branch | null>(null);
   const [position, setPosition] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const prevStatusRef = useRef<string | null>(null);
 
   const dir = lang === "ar" ? "rtl" : "ltr";
   const t = (en: string, ar: string) => (lang === "en" ? en : ar);
+
+  // Mobile browsers block audio until a real tap/touch has happened
+  // on the page — unlock it on the first interaction so the chime is
+  // actually ready to play the moment this customer gets called,
+  // even if they're mid-scroll on social media at that point.
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio();
+      unlockSpeech();
+    };
+    document.addEventListener("touchstart", unlock, { once: true });
+    document.addEventListener("click", unlock, { once: true });
+    return () => {
+      document.removeEventListener("touchstart", unlock);
+      document.removeEventListener("click", unlock);
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("dir", dir);
@@ -65,6 +84,19 @@ export default function TrackingPage() {
   useEffect(() => {
     loadTicket();
   }, [loadTicket]);
+
+  // Audible + vibration alert exactly when this ticket transitions
+  // INTO "called" — not on a plain page load/refresh that happens to
+  // land on an already-called ticket, so it only fires once, right
+  // when it matters.
+  useEffect(() => {
+    if (!ticket) return;
+    const prev = prevStatusRef.current;
+    if (prev !== null && prev !== "called" && ticket.status === "called") {
+      playCallAnnouncement(ticket.advisor_name);
+    }
+    prevStatusRef.current = ticket.status;
+  }, [ticket?.status]);
 
   useEffect(() => {
     if (!ticket) return;

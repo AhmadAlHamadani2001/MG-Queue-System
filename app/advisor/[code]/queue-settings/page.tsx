@@ -12,7 +12,7 @@ import { supabase, Branch, QueuePriorityTier } from "@/lib/supabaseClient";
 const TIER_LABELS: Record<QueuePriorityTier, [string, string]> = {
   inquiry: ["Inquiry", "استفسار"],
   appointment: ["Appointment", "موعد مسبق"],
-  vehicle_delivery: ["Receive Vehicle", "استلام المركبة"],
+  vehicle_delivery: ["Receive Vehicle after Repair/Quick Service", "استلام المركبة بعد الإصلاح/الخدمة السريعة"],
   general_repair: ["General Repair", "إصلاح عام"],
   quick_service: ["Quick Service", "خدمة سريعة"],
 };
