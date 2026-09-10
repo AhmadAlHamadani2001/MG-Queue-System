@@ -13,19 +13,35 @@ export default function TrackingPage() {
   const [branch, setBranch] = useState<Branch | null>(null);
   const [position, setPosition] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const prevStatusRef = useRef<string | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const announcedServedAtRef = useRef<string | null>(null);
 
   const dir = lang === "ar" ? "rtl" : "ltr";
   const t = (en: string, ar: string) => (lang === "en" ? en : ar);
 
-  // Mobile browsers block audio until a real tap/touch has happened
-  // on the page — unlock it on the first interaction so the chime is
-  // actually ready to play the moment this customer gets called,
-  // even if they're mid-scroll on social media at that point.
+  // A visible, explicit tap is far more reliable than a passive
+  // listener for unlocking audio/speech on mobile — especially iOS
+  // Safari, which is picky about exactly when in the gesture the
+  // unlock happens. Keep the passive listeners too as a fallback for
+  // anyone who interacts with the page before tapping this.
+  function enableSound() {
+    unlockAudio();
+    unlockSpeech();
+    setSoundEnabled(true);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try {
+        navigator.vibrate(80);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   useEffect(() => {
     const unlock = () => {
       unlockAudio();
       unlockSpeech();
+      setSoundEnabled(true);
     };
     document.addEventListener("touchstart", unlock, { once: true });
     document.addEventListener("click", unlock, { once: true });
@@ -66,6 +82,17 @@ export default function TrackingPage() {
     }
     setTicket(ticketData as QueueTicket);
 
+    // Announce as soon as we see status "called" with a served_at we
+    // haven't announced yet — this fires whether we got here via the
+    // live realtime push (tab in foreground) or via the tab regaining
+    // visibility after being backgrounded (see the visibilitychange
+    // listener below), so a customer who was away in another app
+    // still gets alerted the moment they come back.
+    if (ticketData.status === "called" && ticketData.served_at && announcedServedAtRef.current !== ticketData.served_at) {
+      announcedServedAtRef.current = ticketData.served_at;
+      playCallAnnouncement(ticketData.advisor_name);
+    }
+
     const { data: branchData } = await supabase
       .from("branches")
       .select("id, code, name_en, name_ar, status")
@@ -85,18 +112,20 @@ export default function TrackingPage() {
     loadTicket();
   }, [loadTicket]);
 
-  // Audible + vibration alert exactly when this ticket transitions
-  // INTO "called" — not on a plain page load/refresh that happens to
-  // land on an already-called ticket, so it only fires once, right
-  // when it matters.
+  // Mobile OSes heavily throttle or pause JavaScript in a backgrounded
+  // browser tab — if the customer switched to another app to scroll,
+  // the realtime push may never actually run until they come back.
+  // Re-check the moment the tab becomes visible again so the alert
+  // still fires as close to "on time" as a plain web page can manage.
   useEffect(() => {
-    if (!ticket) return;
-    const prev = prevStatusRef.current;
-    if (prev !== null && prev !== "called" && ticket.status === "called") {
-      playCallAnnouncement(ticket.advisor_name);
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        loadTicket();
+      }
     }
-    prevStatusRef.current = ticket.status;
-  }, [ticket?.status]);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [loadTicket]);
 
   useEffect(() => {
     if (!ticket) return;
@@ -168,6 +197,15 @@ export default function TrackingPage() {
             {lang === "en" ? "AR" : "EN"}
           </button>
         </header>
+
+        {!soundEnabled && (
+          <button
+            onClick={enableSound}
+            className="w-full py-3 px-5 bg-mg-red/10 border-b border-mg-red/20 text-mg-red text-sm font-semibold flex items-center justify-center gap-2"
+          >
+            🔔 {t("Tap to enable sound alerts for when it's your turn", "اضغط لتفعيل التنبيه الصوتي عند حلول دورك")}
+          </button>
+        )}
 
         <div className="flex-1 flex flex-col p-5 gap-6">
           <div className="flex justify-between items-center px-1">

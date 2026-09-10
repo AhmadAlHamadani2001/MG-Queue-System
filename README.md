@@ -179,6 +179,12 @@ generate queue branches (with customer QR links) for the other 9 too.
 
 ## Changelog (most recent first)
 
+### Round 29 — mobile audio reliability
+- **Added an explicit "🔔 Tap to enable sound alerts" banner** on the tracking page — a real, deliberate tap is far more reliable than a passive listener for unlocking audio/speech on mobile, especially iOS Safari, which is picky about exactly when in a gesture the unlock has to happen.
+- **Added a catch-up check for backgrounded tabs.** If a customer switches away to another app (to scroll social media, exactly the scenario this was built for), the phone's OS throttles or pauses JavaScript in that tab — the realtime push notifying "you've been called" may simply never run until they come back. The page now also re-checks the ticket the moment it becomes visible again, so the alert still fires as soon as they return, instead of being silently missed.
+- **Simplified the announce logic** to key off `served_at` (each time a ticket is freshly called) instead of tracking the previous status — one function now handles the live realtime path, the visibility catch-up path, and a fresh page load landing directly on an already-called ticket, without three separate code paths to keep in sync.
+- **Known platform limit, not fixable from a web page**: none of this can guarantee an alert while the tab is fully backgrounded and the screen is off — that requires either a native app or real push notifications (a service worker + push subscription + a backend to trigger them), which is a genuinely bigger build. What's here now is the most a plain web page can do — catch the customer the instant they glance back at the tab.
+
 ### Round 28 — spoken call announcement, duplicate-ticket guard, label/icon polish
 - **The call alert now speaks**, not just chimes — "Please proceed now, `<advisor name>` is ready for you" in English, then Arabic, using the browser's built-in text-to-speech (no audio files, no external service). Falls back to a name-less phrase if the advisor's name isn't set for some reason.
 - **Registering while already on hold (or already in the queue) now shows a choice instead of silently creating a duplicate** — before a new ticket is created, the registration form checks for an existing held or active ticket on that mobile number at that branch. If found, the customer sees "Rejoin the queue" (or "View my ticket") alongside "Create new ticket anyway," so accidental duplicates require a deliberate second step instead of happening automatically.
