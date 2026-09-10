@@ -47,6 +47,7 @@ several files reference tables the previous one creates:
 20. **`supabase/schema-v16.sql`** — collapses the Repair Request Agreement's 12 flat finding fields (a fixed 6-row layout) into one repeatable "findings" field — add as many rows as needed instead of exactly 6 optional slots.
 21. **`supabase/schema-v17.sql`** — adds `branch_queue_settings`, so a manager or admin can adjust "Call Next Customer"'s priority order and fairness rules per branch instead of it being one fixed rule for everyone.
 22. **`supabase/schema-v18.sql`** — adds a `held` ticket status with a 24-hour validity window (`held_at`, `was_held`), for customers who were called but hadn't shown up yet.
+23. **`supabase/schema-v19.sql`** — adds `push_subscriptions`, for real Web Push notifications that work even when the customer's tab is closed or backgrounded (see "Setting up real push notifications" below — this one needs extra setup beyond just running the SQL).
 11. **`supabase/schema-v7.sql`** — adds `approval_requested_by` (so "Return" can reassign back to whoever asked for approval, and so they're allowed to reassign the line even if they're not the current assignee) and `requests.branch` (reserved for a same-branch duplicate-WIP warning on the New Request form — not wired up in the UI yet).
 
 Then go to **Project Settings → API** and copy:
@@ -178,6 +179,30 @@ generate queue branches (with customer QR links) for the other 9 too.
 ---
 
 ## Changelog (most recent first)
+
+### Round 31 — real Web Push notifications (works with the tab closed)
+Everything before this round only worked while the tracking page's JavaScript was actually running — which mobile OSes suspend the moment a customer switches to another app. This round adds genuine Web Push: a service worker, a push subscription saved per ticket, and a server-side function that fires the notification independent of whether any tab is open at all.
+
+- **New service worker** (`public/sw.js`) — receives push events and shows a system notification even with the tab fully closed; tapping it opens the tracking page.
+- **New `push_subscriptions` table** — when a customer taps "enable notifications," their device subscribes to push and that subscription is saved against their specific ticket.
+- **New server function** (`app/api/send-call-push/route.ts`) — triggered by a Supabase Database Webhook the moment a ticket's status flips to "called," looks up subscriptions for that ticket, and sends the actual push via the `web-push` library. Dead subscriptions (permission revoked, browser data cleared) get cleaned up automatically.
+
+**This needs real setup beyond running the SQL file — it will not work until you do these:**
+
+1. Run `schema-v19.sql`.
+2. In Vercel → your project → Settings → Environment Variables, add:
+   - `VAPID_PUBLIC_KEY` = `BDBQiBGKSDkNM0y6nJSGn9AvawxsCGpwsNNrqmTQLngW6cuN1oLfliE6OUtiLHfUoC9zGWizWFzmwsQD867jaXI`
+   - `VAPID_PRIVATE_KEY` = `ADFNb-a9Owpp-l2th8bpyyQqAtsy1iU27tl6JIAZeYQ`
+   - `VAPID_SUBJECT` = `mailto:` followed by a real contact email (required by the Web Push spec, shown to push services, not to customers)
+   - Redeploy after adding these (same as any env var change).
+3. In Supabase → Database → Webhooks → Create a new webhook:
+   - Table: `queue_tickets`, Event: `Update`
+   - Type: HTTP Request, Method: `POST`
+   - URL: `https://<your-vercel-domain>/api/send-call-push`
+   - (Optional but recommended) add a custom header `x-webhook-secret` with any value you choose, and set that same value as `CALL_PUSH_WEBHOOK_SECRET` in Vercel — without this, the endpoint is open to anyone who finds the URL.
+4. `npm install` locally to pick up the two new packages (`web-push`, `@types/web-push`) before your next `npm run build`.
+
+**Real platform limits, unavoidable even with this in place:** a customer must tap "enable notifications" at least once per device for this to work at all (no way to skip that consent step — every push system on every platform requires it). iOS only supports this for a page added to the home screen as a PWA, not a normal Safari tab — regular iPhone Safari visitors will still only get what Round 29/30 already provide (audio + system notification while the tab is alive, catch-up check on returning to the tab). Android Chrome is where this round matters most — those customers now get a real notification whether the tab is open, closed, or the browser isn't even running.
 
 ### Round 30 — real browser popup notifications
 - **The "enable sound" tap now also requests notification permission** and, once granted, a real system popup notification ("It's your turn! [Advisor] is ready for you — Ticket A-004") fires alongside the chime and spoken announcement whenever the customer is called.

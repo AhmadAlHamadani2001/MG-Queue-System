@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { supabase, Branch, QueueTicket } from "@/lib/supabaseClient";
 import { Spinner } from "@/lib/Spinner";
 import { unlockAudio, unlockSpeech, playCallAnnouncement, requestNotificationPermission, showCallNotification } from "@/lib/notifySound";
+import { subscribeToPush } from "@/lib/pushSubscribe";
 
 export default function TrackingPage() {
   const params = useParams<{ id: string }>();
@@ -29,6 +30,11 @@ export default function TrackingPage() {
     unlockSpeech();
     requestNotificationPermission();
     setSoundEnabled(true);
+    // This is the one that actually works while the tab is closed or
+    // backgrounded — the others only help while the page is alive.
+    if (ticket) {
+      subscribeToPush(ticket.id, ticket.mobile);
+    }
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
         navigator.vibrate(80);
