@@ -18,6 +18,39 @@ function getContext(): AudioContext | null {
   return ctx;
 }
 
+// Real browser popup notifications — works well on Android Chrome even
+// when the tab isn't focused, as long as the browser itself is still
+// running. iOS Safari doesn't support the Notification API for a
+// regular tab at all (only for a home-screen-installed PWA with a full
+// push backend, which is a separate, bigger build) — this function
+// simply does nothing there, no error, no crash.
+export function requestNotificationPermission() {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+export function showCallNotification(advisorName: string | null, ticketNumber: string, lang: "en" | "ar") {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+  try {
+    const title = lang === "en" ? "It's your turn!" : "حان دورك!";
+    const body =
+      lang === "en"
+        ? `Please proceed now${advisorName ? ` — ${advisorName} is ready for you` : ""}. Ticket ${ticketNumber}.`
+        : `الرجاء التوجه الآن${advisorName ? ` — ${advisorName} بانتظارك` : ""}. التذكرة ${ticketNumber}.`;
+    new Notification(title, {
+      body,
+      icon: "/mg-logo.jpg",
+      tag: "queue-call",
+      requireInteraction: true,
+    });
+  } catch {
+    // Not supported here — the chime/speech/vibration already fired regardless.
+  }
+}
+
 export function unlockAudio() {
   if (unlocked) return;
   const audioCtx = getContext();

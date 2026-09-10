@@ -179,6 +179,11 @@ generate queue branches (with customer QR links) for the other 9 too.
 
 ## Changelog (most recent first)
 
+### Round 30 — real browser popup notifications
+- **The "enable sound" tap now also requests notification permission** and, once granted, a real system popup notification ("It's your turn! [Advisor] is ready for you — Ticket A-004") fires alongside the chime and spoken announcement whenever the customer is called.
+- **This meaningfully helps on Android Chrome** — a popup notification can show up in the phone's notification tray even when the tab isn't focused, as long as the browser app itself is still running in the background.
+- **Honest limitation: iOS Safari doesn't support this at all for a regular browser tab.** The function feature-detects and silently does nothing there — no error, no broken UI, just no popup. Real push notifications on iOS require the page to be installed as a home-screen PWA plus a full push backend (service worker, push subscription storage, a server that triggers the push) — a genuinely separate, larger build, not a small addition. Everything from Round 29 (the visibility catch-up check) still applies as the fallback for iOS.
+
 ### Round 29 — mobile audio reliability
 - **Added an explicit "🔔 Tap to enable sound alerts" banner** on the tracking page — a real, deliberate tap is far more reliable than a passive listener for unlocking audio/speech on mobile, especially iOS Safari, which is picky about exactly when in a gesture the unlock has to happen.
 - **Added a catch-up check for backgrounded tabs.** If a customer switches away to another app (to scroll social media, exactly the scenario this was built for), the phone's OS throttles or pauses JavaScript in that tab — the realtime push notifying "you've been called" may simply never run until they come back. The page now also re-checks the ticket the moment it becomes visible again, so the alert still fires as soon as they return, instead of being silently missed.

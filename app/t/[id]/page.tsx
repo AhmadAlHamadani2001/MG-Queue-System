@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { supabase, Branch, QueueTicket } from "@/lib/supabaseClient";
 import { Spinner } from "@/lib/Spinner";
-import { unlockAudio, unlockSpeech, playCallAnnouncement } from "@/lib/notifySound";
+import { unlockAudio, unlockSpeech, playCallAnnouncement, requestNotificationPermission, showCallNotification } from "@/lib/notifySound";
 
 export default function TrackingPage() {
   const params = useParams<{ id: string }>();
@@ -27,6 +27,7 @@ export default function TrackingPage() {
   function enableSound() {
     unlockAudio();
     unlockSpeech();
+    requestNotificationPermission();
     setSoundEnabled(true);
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
@@ -91,6 +92,7 @@ export default function TrackingPage() {
     if (ticketData.status === "called" && ticketData.served_at && announcedServedAtRef.current !== ticketData.served_at) {
       announcedServedAtRef.current = ticketData.served_at;
       playCallAnnouncement(ticketData.advisor_name);
+      showCallNotification(ticketData.advisor_name, ticketData.ticket_number, lang);
     }
 
     const { data: branchData } = await supabase
@@ -106,7 +108,7 @@ export default function TrackingPage() {
       setPosition(0);
     }
     setLoading(false);
-  }, [params.id, computePosition]);
+  }, [params.id, computePosition, lang]);
 
   useEffect(() => {
     loadTicket();
@@ -203,7 +205,7 @@ export default function TrackingPage() {
             onClick={enableSound}
             className="w-full py-3 px-5 bg-mg-red/10 border-b border-mg-red/20 text-mg-red text-sm font-semibold flex items-center justify-center gap-2"
           >
-            🔔 {t("Tap to enable sound alerts for when it's your turn", "اضغط لتفعيل التنبيه الصوتي عند حلول دورك")}
+            🔔 {t("Tap to enable sound & notification alerts for when it's your turn", "اضغط لتفعيل تنبيهات الصوت والإشعارات عند حلول دورك")}
           </button>
         )}
 
