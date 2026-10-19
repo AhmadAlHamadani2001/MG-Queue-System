@@ -411,3 +411,7 @@ supabase/
   schema-v7.sql                                 approval_requested_by + branch on requests — run 11th
   migrations/001_add_wip_number.sql        only if upgrading a pre-existing DB
 ```
+
+## Round 32 — Live buttons fix
+- Advisor and Parts queue pages now refetch immediately after every action (call, complete, no-show, hold, reactivate, return, assign, transfer), so Complete Session / No Show / Hold appear without a manual refresh.
+- Added a 5-second polling fallback plus refetch on tab-visible, in case realtime drops.

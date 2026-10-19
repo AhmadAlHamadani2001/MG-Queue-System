@@ -105,6 +105,20 @@ function PartsDashboard() {
     loadAdvisors();
   }, [branch?.employee_branch, canSeeQueue]);
 
+  const refresh = useCallback(async () => {
+    if (branch?.id) await loadTickets(branch.id);
+  }, [branch?.id, loadTickets]);
+
+  // Safety net: realtime can silently drop (mobile sleep, network blips),
+  // so also poll every 5s and refetch when the tab becomes visible again.
+  useEffect(() => {
+    if (!branch?.id) return;
+    const id = setInterval(() => { loadTickets(branch.id); }, 5000);
+    const onVis = () => { if (document.visibilityState === "visible") loadTickets(branch.id); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, [branch?.id, loadTickets]);
+
   async function serveNow(ticketId: string) {
     await supabase
       .from("queue_tickets")
@@ -116,12 +130,14 @@ function PartsDashboard() {
         preassign_urgent: false,
       })
       .eq("id", ticketId);
+    await refresh();
     showToast(t("Customer called.", "تم استدعاء العميل."));
   }
 
   async function assignAdvisor(ticketId: string, name: string) {
     if (!name) {
       await supabase.from("queue_tickets").update({ preassigned_advisor: null, preassign_urgent: false }).eq("id", ticketId);
+      await refresh();
       showToast(t("Assignment cleared.", "تم إلغاء الإسناد."));
       return;
     }
@@ -132,6 +148,7 @@ function PartsDashboard() {
       )
     );
     await supabase.from("queue_tickets").update({ preassigned_advisor: name, preassign_urgent: urgent }).eq("id", ticketId);
+    await refresh();
     showToast(
       urgent
         ? t(`Urgently assigned to ${name}.`, `تم الإسناد العاجل إلى ${name}.`)
@@ -143,11 +160,13 @@ function PartsDashboard() {
     if (!completeModalFor) return;
     await supabase.from("queue_tickets").update({ status: "completed", closed_at: new Date().toISOString() }).eq("id", completeModalFor);
     setCompleteModalFor(null);
+    await refresh();
     showToast(t("Marked complete.", "تم الإنهاء."));
   }
 
   async function noShow(ticketId: string) {
     await supabase.from("queue_tickets").update({ status: "no_show" }).eq("id", ticketId);
+    await refresh();
     showToast(t("Marked as no-show.", "تم تسجيله كعدم حضور."));
   }
 

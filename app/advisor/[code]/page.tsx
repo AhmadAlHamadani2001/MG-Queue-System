@@ -292,6 +292,20 @@ function AdvisorDashboard() {
     loadAdvisors();
   }, [branch?.employee_branch, canSeeQueue]);
 
+  const refresh = useCallback(async () => {
+    if (branch?.id) await loadTickets(branch.id);
+  }, [branch?.id, loadTickets]);
+
+  // Safety net: realtime can silently drop (mobile sleep, network blips),
+  // so also poll every 5s and refetch when the tab becomes visible again.
+  useEffect(() => {
+    if (!branch?.id) return;
+    const id = setInterval(() => { loadTickets(branch.id); }, 5000);
+    const onVis = () => { if (document.visibilityState === "visible") loadTickets(branch.id); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, [branch?.id, loadTickets]);
+
   async function serveNow(ticketId: string) {
     await supabase
       .from("queue_tickets")
@@ -304,6 +318,7 @@ function AdvisorDashboard() {
         was_held: false,
       })
       .eq("id", ticketId);
+    await refresh();
     showToast(t("Customer called.", "تم استدعاء العميل."));
   }
 
@@ -341,6 +356,7 @@ function AdvisorDashboard() {
   async function assignAdvisor(ticketId: string, name: string) {
     if (!name) {
       await supabase.from("queue_tickets").update({ preassigned_advisor: null, preassign_urgent: false }).eq("id", ticketId);
+      await refresh();
       showToast(t("Assignment cleared.", "تم إلغاء الإسناد."));
       return;
     }
@@ -351,6 +367,7 @@ function AdvisorDashboard() {
       )
     );
     await supabase.from("queue_tickets").update({ preassigned_advisor: name, preassign_urgent: urgent }).eq("id", ticketId);
+    await refresh();
     showToast(
       urgent
         ? t(`Urgently assigned to ${name}.`, `تم الإسناد العاجل إلى ${name}.`)
@@ -372,16 +389,19 @@ function AdvisorDashboard() {
     setCompleteModalFor(null);
     setCompleteWipNumber("");
     setCompleting(false);
+    await refresh();
     showToast(t("Session completed successfully.", "تم إنهاء الجلسة بنجاح."));
   }
 
   async function noShow(ticketId: string) {
     await supabase.from("queue_tickets").update({ status: "no_show" }).eq("id", ticketId);
+    await refresh();
     showToast(t("Marked as no-show.", "تم تسجيله كعدم حضور."));
   }
 
   async function holdCustomer(ticketId: string) {
     await supabase.from("queue_tickets").update({ status: "held", held_at: new Date().toISOString() }).eq("id", ticketId);
+    await refresh();
     showToast(t("Customer held — valid for 24 hours.", "تم تعليق العميل — صالح لمدة 24 ساعة."));
   }
 
@@ -390,6 +410,7 @@ function AdvisorDashboard() {
       .from("queue_tickets")
       .update({ status: "waiting", was_held: true, advisor_name: null, served_at: null })
       .eq("id", ticketId);
+    await refresh();
     showToast(t("Reactivated — back in the queue with priority.", "تمت إعادة التنشيط — رجع للطابور بأولوية."));
   }
 
@@ -398,11 +419,13 @@ function AdvisorDashboard() {
       .from("queue_tickets")
       .update({ status: "waiting", queue_entry_at: new Date().toISOString() })
       .eq("id", ticketId);
+    await refresh();
     showToast(t("Returned to queue.", "تمت الإعادة إلى الطابور."));
   }
 
   async function transferToManager(ticketId: string) {
     if (!branch?.employee_branch) {
+      await refresh();
       showToast(t("No manager mapping for this branch yet.", "لا يوجد مدير مرتبط بهذا الفرع بعد."));
       return;
     }
@@ -435,12 +458,14 @@ function AdvisorDashboard() {
 
     if (!manager) {
       setTransferring(false);
+      await refresh();
       showToast(t("No manager found for this branch.", "لم يتم العثور على مدير لهذا الفرع."));
       return;
     }
 
     await supabase.from("queue_tickets").update({ advisor_name: manager.name }).eq("id", ticketId);
     setTransferring(false);
+    await refresh();
     showToast(t(`Transferred to ${manager.name}.`, `تم التحويل إلى ${manager.name}.`));
   }
 
