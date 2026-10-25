@@ -4,8 +4,13 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { supabase, Branch, QueueTicket } from "@/lib/supabaseClient";
 import { Spinner } from "@/lib/Spinner";
-import { unlockAudio, unlockSpeech, playCallAnnouncement, requestNotificationPermission, showCallNotification } from "@/lib/notifySound";
-import { subscribeToPush } from "@/lib/pushSubscribe";
+import { unlockAudio, unlockSpeech, playCallAnnouncement, showCallNotification } from "@/lib/notifySound";
+import { enablePushAlerts, needsHomeScreenInstall, resubscribeIfGranted, PushStatus } from "@/lib/pushSubscribe";
+
+// How often the in-page alert repeats while the customer hasn't
+// acknowledged it, and how many repeats at most.
+const ALERT_REPEAT_MS = 20000;
+const ALERT_MAX_REPEATS = 4;
 
 export default function TrackingPage() {
   const params = useParams<{ id: string }>();
@@ -15,26 +20,29 @@ export default function TrackingPage() {
   const [position, setPosition] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  // iPhone in a Safari tab: push needs the Home Screen app first.
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  // Full-screen "it's your turn" overlay, repeats until acknowledged.
+  const [alertActive, setAlertActive] = useState(false);
   const announcedServedAtRef = useRef<string | null>(null);
 
   const dir = lang === "ar" ? "rtl" : "ltr";
   const t = (en: string, ar: string) => (lang === "en" ? en : ar);
+
+  useEffect(() => {
+    setShowInstallGuide(needsHomeScreenInstall());
+  }, []);
 
   // A visible, explicit tap is far more reliable than a passive
   // listener for unlocking audio/speech on mobile — especially iOS
   // Safari, which is picky about exactly when in the gesture the
   // unlock happens. Keep the passive listeners too as a fallback for
   // anyone who interacts with the page before tapping this.
-  function enableSound() {
+  async function enableSound() {
     unlockAudio();
     unlockSpeech();
-    requestNotificationPermission();
     setSoundEnabled(true);
-    // This is the one that actually works while the tab is closed or
-    // backgrounded — the others only help while the page is alive.
-    if (ticket) {
-      subscribeToPush(ticket.id, ticket.mobile);
-    }
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
         navigator.vibrate(80);
@@ -42,13 +50,30 @@ export default function TrackingPage() {
         // ignore
       }
     }
+    // Push is the one that works while the page is closed or the phone
+    // is locked — the others only help while the page is alive. On an
+    // iPhone Safari tab it can't work yet (install guide shown instead).
+    if (ticket && !needsHomeScreenInstall()) {
+      setPushStatus(await enablePushAlerts(ticket.id, ticket.mobile));
+    }
   }
 
+  // Device already allowed notifications (e.g. returning customer in
+  // the Home Screen app): link it to this ticket silently.
   useEffect(() => {
+    if (!ticket) return;
+    resubscribeIfGranted(ticket.id, ticket.mobile).then((ok) => {
+      if (ok) setPushStatus("on");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticket?.id]);
+
+  useEffect(() => {
+    // Passive fallback only unlocks audio — it must not hide the
+    // enable button, or the customer never gets the push prompt.
     const unlock = () => {
       unlockAudio();
       unlockSpeech();
-      setSoundEnabled(true);
     };
     document.addEventListener("touchstart", unlock, { once: true });
     document.addEventListener("click", unlock, { once: true });
@@ -97,6 +122,7 @@ export default function TrackingPage() {
     // still gets alerted the moment they come back.
     if (ticketData.status === "called" && ticketData.served_at && announcedServedAtRef.current !== ticketData.served_at) {
       announcedServedAtRef.current = ticketData.served_at;
+      setAlertActive(true);
       playCallAnnouncement(ticketData.advisor_name);
       showCallNotification(ticketData.advisor_name, ticketData.ticket_number, lang);
     }
@@ -154,6 +180,88 @@ export default function TrackingPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticket?.branch_id]);
+
+  // While the call alert is up: repeat the chime + voice every 20s and
+  // flash the tab title, until the customer taps "OK" or the advisor
+  // moves the ticket on (in_service, held, etc.).
+  useEffect(() => {
+    if (!alertActive) return;
+    if (ticket?.status !== "called") {
+      setAlertActive(false);
+      return;
+    }
+    const advisorName = ticket.advisor_name;
+    let repeats = 0;
+    const repeatId = setInterval(() => {
+      repeats += 1;
+      if (repeats > ALERT_MAX_REPEATS) {
+        clearInterval(repeatId);
+        return;
+      }
+      playCallAnnouncement(advisorName);
+    }, ALERT_REPEAT_MS);
+
+    const originalTitle = document.title;
+    const flashText = lang === "en" ? "🔔 It's your turn!" : "🔔 حان دورك!";
+    let flip = false;
+    const titleId = setInterval(() => {
+      flip = !flip;
+      document.title = flip ? flashText : originalTitle;
+    }, 1000);
+
+    return () => {
+      clearInterval(repeatId);
+      clearInterval(titleId);
+      document.title = originalTitle;
+    };
+  }, [alertActive, ticket?.status, ticket?.advisor_name, lang]);
+
+  // Keep the screen awake while waiting, so the page stays alive and
+  // the in-page alert can fire on time. Released once served/done.
+  const ticketStatus = ticket?.status;
+  useEffect(() => {
+    if (!soundEnabled) return;
+    if (ticketStatus !== "waiting" && ticketStatus !== "called") return;
+    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+
+    let lock: WakeLockSentinel | null = null;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        const next = await navigator.wakeLock.request("screen");
+        if (cancelled) {
+          next.release().catch(() => {});
+          return;
+        }
+        lock?.release().catch(() => {});
+        lock = next;
+      } catch {
+        // Denied (low battery, unsupported) — the alert still works.
+      }
+    };
+    acquire();
+    // The OS drops the lock when the page is hidden; take it back.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") acquire();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      lock?.release().catch(() => {});
+    };
+  }, [soundEnabled, ticketStatus]);
+
+  function acknowledgeAlert() {
+    setAlertActive(false);
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
+    }
+  }
 
   if (loading) {
     return (
@@ -213,6 +321,78 @@ export default function TrackingPage() {
           >
             🔔 {t("Tap to enable sound & notification alerts for when it's your turn", "اضغط لتفعيل تنبيهات الصوت والإشعارات عند حلول دورك")}
           </button>
+        )}
+
+        {pushStatus && !completed && (
+          <p
+            className={`w-full py-2 px-5 text-xs text-center border-b ${
+              pushStatus === "on"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                : "bg-amber-50 text-amber-800 border-amber-100"
+            }`}
+          >
+            {pushStatus === "on"
+              ? t("✓ Lock-screen alerts are on — we'll notify you when it's your turn.", "✓ تنبيهات شاشة القفل مفعّلة — سننبهك عند حلول دورك.")
+              : pushStatus === "denied"
+              ? t("Notifications are blocked. Turn them on in Settings › Notifications › MG Queue.", "الإشعارات محظورة. فعّلها من الإعدادات › الإشعارات › MG Queue.")
+              : pushStatus === "unsupported"
+              ? t("Lock-screen alerts need iOS 16.4 or later. Keep this page open to hear your turn.", "تنبيهات شاشة القفل تتطلب iOS 16.4 أو أحدث. أبقِ هذه الصفحة مفتوحة لسماع دورك.")
+              : t("Couldn't turn on lock-screen alerts. Keep this page open to hear your turn.", "تعذر تفعيل تنبيهات شاشة القفل. أبقِ هذه الصفحة مفتوحة لسماع دورك.")}
+          </p>
+        )}
+
+        {showInstallGuide && !completed && (
+          <div className="mx-5 mt-4 rounded-2xl bg-white border border-black/5 shadow-sm p-4">
+            <p className="font-semibold text-mg-ink">
+              📲 {t("Get your turn alert on the lock screen", "استلم تنبيه دورك على شاشة القفل")}
+            </p>
+            <p className="text-sm text-mg-ink/60 mt-1">
+              {t("On iPhone, add this page to your Home Screen first:", "على الآيفون، أضف هذه الصفحة إلى الشاشة الرئيسية أولاً:")}
+            </p>
+            <ol className="text-sm text-mg-ink mt-2 space-y-1.5 list-decimal ps-5">
+              <li>
+                {t("Tap the Share button", "اضغط زر المشاركة")}{" "}
+                <svg viewBox="0 0 24 24" className="inline w-4 h-4 -mt-1 text-blue-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 3v12M8 7l4-4 4 4" />
+                  <path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1" />
+                </svg>{" "}
+                {t("in Safari", "في متصفح سفاري")}
+              </li>
+              <li>{t("Choose “Add to Home Screen”", "اختر «إضافة إلى الشاشة الرئيسية»")}</li>
+              <li>{t("Open “MG Queue” from your Home Screen and tap the 🔔 button", "افتح «MG Queue» من الشاشة الرئيسية واضغط زر 🔔")}</li>
+            </ol>
+            <div className="flex items-center justify-between mt-3">
+              <p className="text-xs text-mg-ink/40">{t("Requires iOS 16.4 or later.", "يتطلب iOS 16.4 أو أحدث.")}</p>
+              <button onClick={() => setShowInstallGuide(false)} className="text-xs text-mg-ink/50 underline">
+                {t("Not now", "ليس الآن")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {alertActive && beingCalled && (
+          <div
+            role="alertdialog"
+            aria-live="assertive"
+            className="fixed inset-0 z-50 bg-gradient-to-br from-mg-red to-mg-redDeep flex flex-col items-center justify-center text-center p-8 gap-3"
+            dir={dir}
+          >
+            <div className="text-6xl animate-bounce">🔔</div>
+            <p className="text-white/80 text-sm uppercase tracking-widest">{t("It's your turn", "حان دورك")}</p>
+            <p className="text-6xl font-bold text-white">{ticket.ticket_number}</p>
+            <p className="text-2xl font-semibold text-white">{t("Please proceed now", "يرجى التوجه الآن")}</p>
+            <p className="text-white/85">
+              {ticket.advisor_name
+                ? t(`Advisor ${ticket.advisor_name} is ready for you.`, `المستشار ${ticket.advisor_name} بانتظارك.`)
+                : t("An advisor is ready for you.", "أحد المستشارين بانتظارك.")}
+            </p>
+            <button
+              onClick={acknowledgeAlert}
+              className="mt-6 w-full max-w-xs py-4 rounded-full bg-white text-mg-red font-bold text-lg shadow-lg"
+            >
+              {t("OK, I'm on my way", "حسناً، أنا قادم")}
+            </button>
+          </div>
         )}
 
         <div className="flex-1 flex flex-col p-5 gap-6">

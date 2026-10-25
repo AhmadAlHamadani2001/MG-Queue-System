@@ -106,7 +106,7 @@ export function playCallAnnouncement(advisorName: string | null) {
       // Speech is a nice-to-have here too — the chime/vibration above
       // already fired regardless.
     }
-  }, 2000);
+  }, 2200);
 }
 
 export function playCallChime() {
@@ -117,26 +117,30 @@ export function playCallChime() {
       audioCtx.resume().catch(() => {});
     }
     const now = audioCtx.currentTime;
-    [880, 1108.73].forEach((freq, i) => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      const start = now + i * 0.22;
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(0.35, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.4);
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start(start);
-      osc.stop(start + 0.45);
-    });
+    // Three ding-dong rounds, louder than before, so it's hard to miss
+    // in a busy showroom.
+    for (let round = 0; round < 3; round++) {
+      [880, 1108.73].forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const start = now + round * 0.6 + i * 0.22;
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(0.6, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.4);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(start);
+        osc.stop(start + 0.45);
+      });
+    }
   } catch {
     // Audio is a nice-to-have here, never worth breaking the page over.
   }
 
   if (typeof navigator !== "undefined" && "vibrate" in navigator) {
     try {
-      navigator.vibrate([200, 100, 200]);
+      navigator.vibrate([400, 150, 400, 150, 400]);
     } catch {
       // ignore
     }

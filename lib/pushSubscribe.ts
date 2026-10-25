@@ -20,6 +20,54 @@ export function pushSupported(): boolean {
   return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
 }
 
+// iPhone / iPad (iPadOS reports itself as "Macintosh" but has touch).
+export function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+// True when opened from a Home Screen icon rather than a browser tab.
+export function isStandalone(): boolean {
+  if (typeof window === "undefined") return false;
+  const nav = navigator as Navigator & { standalone?: boolean };
+  return nav.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+}
+
+// On iPhone, Web Push only exists inside a Home Screen app (iOS 16.4+).
+// In a normal Safari tab the customer has to install first.
+export function needsHomeScreenInstall(): boolean {
+  return isIOS() && !isStandalone();
+}
+
+export type PushStatus = "on" | "denied" | "unsupported" | "error";
+
+// Asks for notification permission and subscribes this device to the
+// ticket. Must be called straight from a tap: iOS refuses the
+// permission prompt if it isn't tied to a user gesture, so the
+// permission request comes first, before any other await.
+export async function enablePushAlerts(ticketId: string, mobile: string): Promise<PushStatus> {
+  if (!pushSupported() || typeof Notification === "undefined") return "unsupported";
+  let permission = Notification.permission;
+  if (permission === "default") {
+    try {
+      permission = await Notification.requestPermission();
+    } catch {
+      return "error";
+    }
+  }
+  if (permission !== "granted") return "denied";
+  return (await subscribeToPush(ticketId, mobile)) ? "on" : "error";
+}
+
+// Re-links an already-allowed device to this ticket without a prompt —
+// e.g. a returning customer opening the Home Screen app for a new visit.
+export async function resubscribeIfGranted(ticketId: string, mobile: string): Promise<boolean> {
+  if (!pushSupported() || typeof Notification === "undefined") return false;
+  if (Notification.permission !== "granted") return false;
+  return subscribeToPush(ticketId, mobile);
+}
+
 // Registers the service worker, subscribes this device to push, and
 // saves the subscription against this specific ticket so the
 // send-call-push function knows exactly who to notify when it's

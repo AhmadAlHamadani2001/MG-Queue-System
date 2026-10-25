@@ -16,6 +16,12 @@ self.addEventListener("push", (event) => {
     icon: "/mg-logo.jpg",
     badge: "/mg-logo.jpg",
     tag: "queue-call",
+    // Re-alert (sound + banner) even if an older call notification with
+    // the same tag is still on screen. iOS plays its default sound;
+    // vibrate is honored on Android only.
+    renotify: true,
+    silent: false,
+    vibrate: [400, 150, 400, 150, 400],
     requireInteraction: true,
     data: { url: data.url || "/" },
   };

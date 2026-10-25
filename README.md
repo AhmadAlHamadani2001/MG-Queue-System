@@ -415,3 +415,11 @@ supabase/
 ## Round 32 — Live buttons fix
 - Advisor and Parts queue pages now refetch immediately after every action (call, complete, no-show, hold, reactivate, return, assign, transfer), so Complete Session / No Show / Hold appear without a manual refresh.
 - Added a 5-second polling fallback plus refetch on tab-visible, in case realtime drops.
+
+## Round 33 — iPhone lock-screen alerts + stronger call alert
+- Added a web app manifest (`app/manifest.ts`), Apple Home Screen meta tags and PNG app icons. iOS 16.4+ only allows Web Push for Home Screen apps, so this is what makes lock-screen alerts possible on iPhone.
+- Tracking page (`/t/[id]`) shows iPhone Safari users a 3-step "Add to Home Screen" guide. The Home Screen icon reopens the customer's own ticket.
+- Notification permission is now requested directly from the 🔔 tap (iOS requirement), with a status line: on / blocked / iOS too old / failed. Devices that already allowed notifications are re-linked to the new ticket silently.
+- Fixed: any tap on the page used to hide the 🔔 button before push was subscribed.
+- Stronger in-page call alert: full-screen red "It's your turn" overlay, louder triple chime + voice, repeats every 20s (max 4) until "OK, I'm on my way", flashing tab title, and a screen wake lock while waiting.
+- Push notifications now re-alert (`renotify`) and vibrate on Android. iOS uses its default notification sound; Dynamic Island / custom tones need a native app.
