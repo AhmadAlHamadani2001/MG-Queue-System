@@ -7,6 +7,7 @@ import { Spinner } from "@/lib/Spinner";
 import { unlockAudio, unlockSpeech, playCallAnnouncement, showCallNotification } from "@/lib/notifySound";
 import { enablePushAlerts, isInAppClip, needsHomeScreenInstall, resubscribeIfGranted, PushStatus } from "@/lib/pushSubscribe";
 import { ticketPosition } from "@/lib/queuePosition";
+import { whatsappNotifyUrl } from "@/lib/whatsappLink";
 
 // How often the in-page alert repeats while the customer hasn't
 // acknowledged it, and how many repeats at most.
@@ -25,6 +26,8 @@ export default function TrackingPage() {
   // Inside the iPhone App Clip, native code owns lock-screen alerts and
   // the Live Activity, so the web-push button/status are hidden.
   const [inAppClip, setInAppClip] = useState(false);
+  // Customer sent the WhatsApp "Notify me" message (free turn alert).
+  const [waSubscribed, setWaSubscribed] = useState(false);
   // Full-screen "it's your turn" overlay, repeats until acknowledged.
   const [alertActive, setAlertActive] = useState(false);
   const announcedServedAtRef = useRef<string | null>(null);
@@ -106,6 +109,16 @@ export default function TrackingPage() {
       return;
     }
     setTicket(ticketData as QueueTicket);
+
+    // Re-checked on every refresh, including when the customer comes
+    // back from WhatsApp (visibilitychange), so the button flips to
+    // "WhatsApp alerts on" without a reload.
+    const { data: waSub } = await supabase
+      .from("whatsapp_subscriptions")
+      .select("id")
+      .eq("ticket_id", ticketData.id)
+      .maybeSingle();
+    setWaSubscribed(Boolean(waSub));
 
     // Announce as soon as we see status "called" with a served_at we
     // haven't announced yet — this fires whether we got here via the
@@ -276,6 +289,7 @@ export default function TrackingPage() {
   const beingCalled = ticket.status === "called";
   const inService = ticket.status === "in_service";
   const completed = ticket.status === "completed";
+  const waUrl = whatsappNotifyUrl(ticket.ticket_number, ticket.id);
 
   const circumference = 2 * Math.PI * 70;
   const progress = position !== null ? Math.max(0, 1 - Math.min(position, 8) / 8) : 1;
@@ -314,6 +328,31 @@ export default function TrackingPage() {
           >
             🔔 {t("Tap to enable sound & notification alerts for when it's your turn", "اضغط لتفعيل تنبيهات الصوت والإشعارات عند حلول دورك")}
           </button>
+        )}
+
+        {waUrl && !completed && !inService && (
+          <div className="mx-5 mt-4">
+            {waSubscribed ? (
+              <p className="w-full py-3 px-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm text-center font-medium">
+                ✓ {t("WhatsApp alerts are on — we'll message you when it's your turn.", "تنبيهات واتساب مفعّلة — سنرسل لك عند حلول دورك.")}
+              </p>
+            ) : (
+              <a
+                href={waUrl}
+                className="w-full py-4 px-4 rounded-2xl bg-[#25D366] text-white font-bold text-base flex items-center justify-center gap-2 shadow-sm"
+              >
+                <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor" aria-hidden="true">
+                  <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.9-4.45 9.9-9.91A9.86 9.86 0 0 0 12.04 2Zm5.8 14.09c-.24.68-1.42 1.3-1.96 1.35-.5.05-1.13.07-1.83-.11-.42-.13-.96-.31-1.65-.61-2.9-1.25-4.8-4.17-4.94-4.36-.14-.2-1.18-1.57-1.18-3s.75-2.13 1.02-2.42c.27-.29.58-.36.78-.36h.56c.18 0 .42-.07.66.5.24.58.82 2.01.89 2.16.07.14.12.31.02.5-.1.2-.14.31-.29.48-.14.17-.3.38-.43.51-.14.14-.29.3-.13.59.17.29.74 1.22 1.58 1.97 1.09.97 2 1.27 2.29 1.42.29.14.46.12.63-.07.17-.2.72-.84.92-1.13.19-.29.38-.24.65-.14.26.1 1.68.79 1.97.94.29.14.48.21.55.33.07.12.07.7-.17 1.38Z" />
+                </svg>
+                {t("Notify me on WhatsApp", "نبهني عبر واتساب")}
+              </a>
+            )}
+            {!waSubscribed && (
+              <p className="text-xs text-mg-ink/50 text-center mt-1.5">
+                {t("Tap, then press Send in WhatsApp. We'll message you when it's your turn.", "اضغط ثم أرسل الرسالة في واتساب. سنرسل لك عند حلول دورك.")}
+              </p>
+            )}
+          </div>
         )}
 
         {pushStatus && !completed && !inAppClip && (

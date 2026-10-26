@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import webpush from "web-push";
 import { supabase } from "@/lib/supabaseClient";
 import { syncIosDevices } from "@/lib/iosPush";
+import { notifyWhatsAppOnCall } from "@/lib/whatsapp";
 
 // Configured lazily so a missing env var doesn't crash the whole
 // route module at import time — instead it just fails the request
@@ -84,10 +85,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ skipped: "not a transition into called", ios });
   }
 
+  // WhatsApp (free reply inside the customer's 24h window). Runs before
+  // web push so a missing VAPID setup or no browser subscription can't
+  // skip it.
+  let whatsapp: unknown = null;
+  try {
+    const site = process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
+    whatsapp = await notifyWhatsAppOnCall(record.id, `🔔 ${title}\n${body}\n${site}/t/${record.id}`);
+  } catch (e) {
+    whatsapp = { error: (e as Error).message };
+  }
+
   try {
     configureWebPush();
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message, ios }, { status: 500 });
+    return NextResponse.json({ error: (e as Error).message, ios, whatsapp }, { status: 500 });
   }
 
   const { data: subscriptions } = await supabase
@@ -96,7 +108,7 @@ export async function POST(request: Request) {
     .eq("ticket_id", record.id);
 
   if (!subscriptions || subscriptions.length === 0) {
-    return NextResponse.json({ sent: 0, reason: "no subscriptions for this ticket", ios });
+    return NextResponse.json({ sent: 0, reason: "no subscriptions for this ticket", ios, whatsapp });
   }
 
   const notificationPayload = JSON.stringify({
@@ -123,5 +135,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ sent, of: subscriptions.length, ios });
+  return NextResponse.json({ sent, of: subscriptions.length, ios, whatsapp });
 }

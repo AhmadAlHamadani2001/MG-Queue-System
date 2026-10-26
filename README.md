@@ -435,3 +435,23 @@ iPhone customers get the call on the lock screen (MG chime, time-sensitive) and 
 - Removed the Round 33 "Add to Home Screen" guide. Inside the App Clip the web-push button is hidden (native handles it).
 
 **Setup:** run `schema-v21.sql`; the existing Supabase webhook (all `queue_tickets` Updates) is reused. Add Vercel env vars `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY` (.p8 contents), `APNS_CLIP_BUNDLE_ID`, later `NEXT_PUBLIC_IOS_APP_ID`, then redeploy. Without the APNs vars everything else works as before.
+
+## Round 35 — Free WhatsApp turn alerts (all phones, no install)
+The ticket page shows a green **Notify me on WhatsApp** button. The customer taps it, WhatsApp opens with a ready message (`Ticket A-012 (ref 1a2b3c4d)`), they press **Send**. When the advisor calls the ticket, the server replies automatically in that chat: lock-screen notification with the normal WhatsApp sound, on iPhone and Android.
+- **Free:** the customer messages first, which opens Meta's 24-hour customer-service window; replies inside it cost nothing. No paid templates are used.
+- `schema-v22.sql`: table `whatsapp_subscriptions` (ticket ↔ WhatsApp number, start of the free window, when notified).
+- `app/api/whatsapp/webhook`: Meta webhook (GET verification + POST incoming messages, `X-Hub-Signature-256` check). Matches the message to the ticket by the `ref` code, else by mobile number; replies with a confirmation, people ahead and the tracking link.
+- `send-call-push` now also sends the WhatsApp "your turn" message on a call (`lib/whatsapp.ts`).
+- `/privacy` page (bilingual), needed by Meta to make the WhatsApp app Live, and by Apple later.
+- The button is hidden until `NEXT_PUBLIC_WHATSAPP_NUMBER` is set.
+
+**Setup (all free):**
+1. Run `schema-v22.sql` in Supabase.
+2. Create a Meta Business portfolio at business.facebook.com.
+3. developers.facebook.com → My Apps → Create App → type **Business** → add the **WhatsApp** product.
+4. WhatsApp → API Setup → **Add phone number**: use a number that is NOT in the WhatsApp app (or delete it from the app first). Verify it by SMS. Copy the **Phone number ID**.
+5. Business Settings → Users → System users → Add (Admin) → Add assets: the app and the WhatsApp account (full control) → Generate token: permissions `whatsapp_business_messaging`, `whatsapp_business_management`, expiry **Never**.
+6. App settings → Basic: copy the **App secret**; set Privacy Policy URL to `https://mgqueuesystem.vercel.app/privacy`.
+7. Vercel env vars, then redeploy: `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` (any secret you make up), `WHATSAPP_APP_SECRET`, `NEXT_PUBLIC_WHATSAPP_NUMBER` (digits with country code, e.g. `9665XXXXXXXX`).
+8. WhatsApp → Configuration → Webhook: Callback URL `https://mgqueuesystem.vercel.app/api/whatsapp/webhook`, Verify token = `WHATSAPP_VERIFY_TOKEN` → Verify and save → subscribe to the **messages** field.
+9. Switch the app from Development to **Live** (top bar of the app dashboard). In Development mode only app admins/testers can message it.
