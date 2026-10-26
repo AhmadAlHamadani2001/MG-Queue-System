@@ -1,0 +1,146 @@
+# XcodeGen spec for the MG Queue iPhone app + App Clip.
+# Generate the Xcode project with:  cd ios && xcodegen generate
+#
+# Fill these two values in ONCE (see ios/README.md):
+#   MG_BUNDLE_BASE  - your bundle ID base. Every target derives from it:
+#                       app            <base>
+#                       app widgets    <base>.Widgets
+#                       App Clip       <base>.Clip
+#                       clip widgets   <base>.Clip.Widgets
+#   DEVELOPMENT_TEAM - your 10-character Apple Team ID.
+
+name: MGQueue
+
+options:
+  deploymentTarget:
+    iOS: "16.2"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    MG_BUNDLE_BASE: com.mgqueue.app
+    DEVELOPMENT_TEAM: "YOUR_TEAM_ID"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.2"
+    TARGETED_DEVICE_FAMILY: "1"
+    # Codemagic's `xcode-project use-profiles` fills in the profiles.
+    CODE_SIGN_STYLE: Manual
+
+targets:
+  # ---------------------------------------------------------------- full app
+  MGQueue:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Shared/QueueActivityAttributes.swift
+      - path: Shared/WebShell.swift
+      - path: Shared/TicketSession.swift
+      - path: Shared/AppDelegate.swift
+      - path: Shared/Brand.swift
+      - path: Resources/mg-chime.caf
+        buildPhase: resources
+      - path: Resources/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MG_BUNDLE_BASE)
+        PRODUCT_NAME: MGQueue
+        INFOPLIST_FILE: Config/App-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/MGQueue.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - target: MGQueueWidgets
+        embed: true
+        codeSign: true
+      - target: MGQueueClip
+        embed: true
+        codeSign: true
+        # XcodeGen embeds App Clips into "Embedded App Clips" automatically.
+
+  # ---------------------------------------------------------------- App Clip
+  MGQueueClip:
+    type: application.on-demand-install-capable
+    platform: iOS
+    sources:
+      - path: Clip
+      - path: Shared/QueueActivityAttributes.swift
+      - path: Shared/WebShell.swift
+      - path: Shared/TicketSession.swift
+      - path: Shared/AppDelegate.swift
+      - path: Shared/Brand.swift
+      - path: Resources/mg-chime.caf
+        buildPhase: resources
+      - path: Resources/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MG_BUNDLE_BASE).Clip
+        PRODUCT_NAME: MGQueueClip
+        INFOPLIST_FILE: Config/Clip-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/MGQueueClip.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) APPCLIP
+    dependencies:
+      - target: MGQueueClipWidgets
+        embed: true
+        codeSign: true
+
+  # ------------------------------------------- Live Activity widget (app)
+  MGQueueWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: Shared/QueueActivityAttributes.swift
+      - path: Shared/QueueLiveActivityView.swift
+      - path: Shared/Brand.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MG_BUNDLE_BASE).Widgets
+        PRODUCT_NAME: MGQueueWidgets
+        INFOPLIST_FILE: Config/Widgets-Info.plist
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+
+  # -------------------------------------- Live Activity widget (App Clip)
+  MGQueueClipWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: Shared/QueueActivityAttributes.swift
+      - path: Shared/QueueLiveActivityView.swift
+      - path: Shared/Brand.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MG_BUNDLE_BASE).Clip.Widgets
+        PRODUCT_NAME: MGQueueClipWidgets
+        INFOPLIST_FILE: Config/Widgets-Info.plist
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+
+schemes:
+  MGQueue:
+    build:
+      targets:
+        MGQueue: all
+        MGQueueClip: all
+        MGQueueWidgets: all
+        MGQueueClipWidgets: all
+    archive:
+      config: Release
+  MGQueueClip:
+    build:
+      targets:
+        MGQueueClip: all
+        MGQueueClipWidgets: all

@@ -1,0 +1,66 @@
+# Codemagic CI: builds the iPhone app + App Clip in the cloud (no Mac
+# needed) and uploads it to TestFlight. Setup steps: ios/README.md.
+#
+# Placeholders to fill in:
+#   integrations.app_store_connect  -> name of your App Store Connect API
+#                                      key in Codemagic (Team integrations)
+#   ios_signing.bundle_identifier   -> same value as MG_BUNDLE_BASE in
+#                                      ios/project.yml
+#   APP_STORE_APPLE_ID              -> numeric "Apple ID" of the app record
+#                                      (App Store Connect > App Information)
+
+workflows:
+  ios-testflight:
+    name: iOS app + App Clip to TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: app_store_connect
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        # Also fetches <base>.Widgets, <base>.Clip and <base>.Clip.Widgets.
+        bundle_identifier: com.mgqueue.app
+      vars:
+        XCODE_PROJECT: ios/MGQueue.xcodeproj
+        XCODE_SCHEME: MGQueue
+        APP_STORE_APPLE_ID: "0000000000"
+      xcode: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+      cancel_previous_builds: true
+    when:
+      changeset:
+        includes:
+          - "ios/**"
+          - "codemagic.yaml"
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: Generate Xcode project
+        script: |
+          cd ios
+          xcodegen generate
+      - name: Apply signing profiles
+        script: xcode-project use-profiles --project "$XCODE_PROJECT"
+      - name: Build ipa (app + embedded App Clip)
+        script: |
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0)
+          BUILD_NUMBER=$((LATEST + 1))
+          echo "Build number: $BUILD_NUMBER"
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --archive-xcargs "CURRENT_PROJECT_VERSION=$BUILD_NUMBER COMPILER_INDEX_STORE_ENABLE=NO"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
