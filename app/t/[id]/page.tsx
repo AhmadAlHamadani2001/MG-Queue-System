@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { supabase, Branch, QueueTicket } from "@/lib/supabaseClient";
 import { Spinner } from "@/lib/Spinner";
 import { unlockAudio, unlockSpeech, playCallAnnouncement, showCallNotification } from "@/lib/notifySound";
-import { enablePushAlerts, needsHomeScreenInstall, resubscribeIfGranted, PushStatus } from "@/lib/pushSubscribe";
+import { enablePushAlerts, isInAppClip, needsHomeScreenInstall, resubscribeIfGranted, PushStatus } from "@/lib/pushSubscribe";
+import { ticketPosition } from "@/lib/queuePosition";
 
 // How often the in-page alert repeats while the customer hasn't
 // acknowledged it, and how many repeats at most.
@@ -21,8 +22,9 @@ export default function TrackingPage() {
   const [loading, setLoading] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
-  // iPhone in a Safari tab: push needs the Home Screen app first.
-  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  // Inside the iPhone App Clip, native code owns lock-screen alerts and
+  // the Live Activity, so the web-push button/status are hidden.
+  const [inAppClip, setInAppClip] = useState(false);
   // Full-screen "it's your turn" overlay, repeats until acknowledged.
   const [alertActive, setAlertActive] = useState(false);
   const announcedServedAtRef = useRef<string | null>(null);
@@ -31,7 +33,7 @@ export default function TrackingPage() {
   const t = (en: string, ar: string) => (lang === "en" ? en : ar);
 
   useEffect(() => {
-    setShowInstallGuide(needsHomeScreenInstall());
+    setInAppClip(isInAppClip());
   }, []);
 
   // A visible, explicit tap is far more reliable than a passive
@@ -53,7 +55,7 @@ export default function TrackingPage() {
     // Push is the one that works while the page is closed or the phone
     // is locked — the others only help while the page is alive. On an
     // iPhone Safari tab it can't work yet (install guide shown instead).
-    if (ticket && !needsHomeScreenInstall()) {
+    if (ticket && !needsHomeScreenInstall() && !isInAppClip()) {
       setPushStatus(await enablePushAlerts(ticket.id, ticket.mobile));
     }
   }
@@ -88,17 +90,8 @@ export default function TrackingPage() {
     document.documentElement.setAttribute("lang", lang);
   }, [dir, lang]);
 
-  const computePosition = useCallback(async (branchId: string, entryAt: string, ticketId: string) => {
-    const { data } = await supabase
-      .from("queue_tickets")
-      .select("id, queue_entry_at")
-      .eq("branch_id", branchId)
-      .eq("status", "waiting")
-      .order("queue_entry_at", { ascending: true });
-
-    if (!data) return;
-    const idx = data.findIndex((row) => row.id === ticketId);
-    setPosition(idx === -1 ? null : idx + 1);
+  const computePosition = useCallback(async (branchId: string, _entryAt: string, ticketId: string) => {
+    setPosition(await ticketPosition(branchId, ticketId));
   }, []);
 
   const loadTicket = useCallback(async () => {
@@ -323,7 +316,7 @@ export default function TrackingPage() {
           </button>
         )}
 
-        {pushStatus && !completed && (
+        {pushStatus && !completed && !inAppClip && (
           <p
             className={`w-full py-2 px-5 text-xs text-center border-b ${
               pushStatus === "on"
@@ -339,35 +332,6 @@ export default function TrackingPage() {
               ? t("Lock-screen alerts need iOS 16.4 or later. Keep this page open to hear your turn.", "تنبيهات شاشة القفل تتطلب iOS 16.4 أو أحدث. أبقِ هذه الصفحة مفتوحة لسماع دورك.")
               : t("Couldn't turn on lock-screen alerts. Keep this page open to hear your turn.", "تعذر تفعيل تنبيهات شاشة القفل. أبقِ هذه الصفحة مفتوحة لسماع دورك.")}
           </p>
-        )}
-
-        {showInstallGuide && !completed && (
-          <div className="mx-5 mt-4 rounded-2xl bg-white border border-black/5 shadow-sm p-4">
-            <p className="font-semibold text-mg-ink">
-              📲 {t("Get your turn alert on the lock screen", "استلم تنبيه دورك على شاشة القفل")}
-            </p>
-            <p className="text-sm text-mg-ink/60 mt-1">
-              {t("On iPhone, add this page to your Home Screen first:", "على الآيفون، أضف هذه الصفحة إلى الشاشة الرئيسية أولاً:")}
-            </p>
-            <ol className="text-sm text-mg-ink mt-2 space-y-1.5 list-decimal ps-5">
-              <li>
-                {t("Tap the Share button", "اضغط زر المشاركة")}{" "}
-                <svg viewBox="0 0 24 24" className="inline w-4 h-4 -mt-1 text-blue-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 3v12M8 7l4-4 4 4" />
-                  <path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1" />
-                </svg>{" "}
-                {t("in Safari", "في متصفح سفاري")}
-              </li>
-              <li>{t("Choose “Add to Home Screen”", "اختر «إضافة إلى الشاشة الرئيسية»")}</li>
-              <li>{t("Open “MG Queue” from your Home Screen and tap the 🔔 button", "افتح «MG Queue» من الشاشة الرئيسية واضغط زر 🔔")}</li>
-            </ol>
-            <div className="flex items-center justify-between mt-3">
-              <p className="text-xs text-mg-ink/40">{t("Requires iOS 16.4 or later.", "يتطلب iOS 16.4 أو أحدث.")}</p>
-              <button onClick={() => setShowInstallGuide(false)} className="text-xs text-mg-ink/50 underline">
-                {t("Not now", "ليس الآن")}
-              </button>
-            </div>
-          </div>
         )}
 
         {alertActive && beingCalled && (

@@ -423,3 +423,15 @@ supabase/
 - Fixed: any tap on the page used to hide the 🔔 button before push was subscribed.
 - Stronger in-page call alert: full-screen red "It's your turn" overlay, louder triple chime + voice, repeats every 20s (max 4) until "OK, I'm on my way", flashing tab title, and a screen wake lock while waiting.
 - Push notifications now re-alert (`renotify`) and vibrate on Android. iOS uses its default notification sound; Dynamic Island / custom tones need a native app.
+
+## Round 34 — iPhone App Clip: lock-screen alert + Dynamic Island (server side)
+iPhone customers get the call on the lock screen (MG chime, time-sensitive) and a Live Activity in the Dynamic Island showing people ahead, with no App Store install: scan the branch QR, tap **Open** on the App Clip card. The native project lives in `ios/` (built in the cloud with Codemagic, see `ios/README.md`).
+- New table `ios_devices` (`schema-v21.sql`): one row per ticket with the APNs device token and Live Activity token.
+- `POST /api/ios/register` — the App Clip sends `{ticketId, deviceToken?, activityToken?}` and gets back `{ticketNumber, branchName, status, position, advisorName}`.
+- `lib/apns.ts` — APNs sender (HTTP/2, .p8 token auth signed with Node crypto, no new packages). `lib/iosPush.ts` — runs from the existing `send-call-push` webhook on every ticket update: alert + Live Activity flip on call, "people ahead" updates only when changed, Live Activity ends on completed/no-show/cancelled, dead tokens removed.
+- `/.well-known/apple-app-site-association` — links `mgqueuesystem.vercel.app` to the App Clip.
+- Safari Smart App Banner (App Clip card) on `/t/*` and `/branch/*` once `NEXT_PUBLIC_IOS_APP_ID` is set.
+- Position logic shared in `lib/queuePosition.ts` so the web page and the Dynamic Island always match.
+- Removed the Round 33 "Add to Home Screen" guide. Inside the App Clip the web-push button is hidden (native handles it).
+
+**Setup:** run `schema-v21.sql`; the existing Supabase webhook (all `queue_tickets` Updates) is reused. Add Vercel env vars `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY` (.p8 contents), `APNS_CLIP_BUNDLE_ID`, later `NEXT_PUBLIC_IOS_APP_ID`, then redeploy. Without the APNs vars everything else works as before.

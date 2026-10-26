@@ -34,6 +34,12 @@ export function isStandalone(): boolean {
   return nav.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
 }
 
+// Running inside the iPhone App Clip's WebView (it adds "MGQueueClip"
+// to the user agent). Native code handles lock-screen alerts there.
+export function isInAppClip(): boolean {
+  return typeof navigator !== "undefined" && navigator.userAgent.includes("MGQueueClip");
+}
+
 // On iPhone, Web Push only exists inside a Home Screen app (iOS 16.4+).
 // In a normal Safari tab the customer has to install first.
 export function needsHomeScreenInstall(): boolean {

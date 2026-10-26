@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import webpush from "web-push";
 import { supabase } from "@/lib/supabaseClient";
+import { syncIosDevices } from "@/lib/iosPush";
 
 // Configured lazily so a missing env var doesn't crash the whole
 // route module at import time — instead it just fails the request
@@ -20,6 +21,7 @@ type WebhookPayload = {
   table: string;
   record: {
     id: string;
+    branch_id: string;
     status: string;
     advisor_name: string | null;
     ticket_number: string;
@@ -55,14 +57,37 @@ export async function POST(request: Request) {
 
   const record = payload.record;
   const wasAlreadyCalled = payload.old_record?.status === "called";
-  if (record.status !== "called" || wasAlreadyCalled) {
-    return NextResponse.json({ skipped: "not a transition into called" });
+  const isCallTransition = record.status === "called" && !wasAlreadyCalled;
+  const advisorName = record.advisor_name;
+  const body = advisorName
+    ? `Please proceed now — ${advisorName} is ready for you.\nالرجاء التوجه الآن — ${advisorName} بانتظارك.`
+    : "Please proceed now — we are ready for you.\nالرجاء التوجه الآن — نحن بانتظارك.";
+
+  const title = `It's your turn! · حان دورك! (${record.ticket_number})`;
+
+  // iPhone App Clip: runs on every queue update in the branch, so the
+  // Dynamic Island "people ahead" count stays current, not only on calls.
+  let ios: unknown = null;
+  if (record.branch_id) {
+    try {
+      ios = await syncIosDevices(
+        record.branch_id,
+        isCallTransition ? record.id : null,
+        isCallTransition ? { title, body } : null
+      );
+    } catch (e) {
+      ios = { error: (e as Error).message };
+    }
+  }
+
+  if (!isCallTransition) {
+    return NextResponse.json({ skipped: "not a transition into called", ios });
   }
 
   try {
     configureWebPush();
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return NextResponse.json({ error: (e as Error).message, ios }, { status: 500 });
   }
 
   const { data: subscriptions } = await supabase
@@ -71,16 +96,11 @@ export async function POST(request: Request) {
     .eq("ticket_id", record.id);
 
   if (!subscriptions || subscriptions.length === 0) {
-    return NextResponse.json({ sent: 0, reason: "no subscriptions for this ticket" });
+    return NextResponse.json({ sent: 0, reason: "no subscriptions for this ticket", ios });
   }
 
-  const advisorName = record.advisor_name;
-  const body = advisorName
-    ? `Please proceed now — ${advisorName} is ready for you.\nالرجاء التوجه الآن — ${advisorName} بانتظارك.`
-    : "Please proceed now — we are ready for you.\nالرجاء التوجه الآن — نحن بانتظارك.";
-
   const notificationPayload = JSON.stringify({
-    title: `It's your turn! · حان دورك! (${record.ticket_number})`,
+    title,
     body,
     url: `/t/${record.id}`,
   });
@@ -103,5 +123,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ sent, of: subscriptions.length });
+  return NextResponse.json({ sent, of: subscriptions.length, ios });
 }
